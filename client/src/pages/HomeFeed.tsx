@@ -78,31 +78,28 @@ const HomeFeed = () => {
       );
     }
 
-    const elements: React.ReactNode[] = [];
-    let i = 0;
-    while (i < posts.length) {
-      if (i < posts.length) {
-        elements.push(<PlantCardLarge key={posts[i]._id} post={posts[i]} onInterest={handleInterest} />);
-        i++;
-      }
-      if (i < posts.length) {
-        const smallCards = posts.slice(i, i + 2);
-        elements.push(
-          <div key={`grid-${i}`} className="grid grid-cols-2 gap-3">
-            {smallCards.map((p) => <PlantCardSmall key={p._id} post={p} />)}
-          </div>
-        );
-        i += smallCards.length;
-      }
-      if (i > 0 && i % 5 === 0) {
-        elements.push(<WeatherBanner key={`weather-${i}`} />);
-      }
-    }
-    return elements;
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4 auto-rows-max">
+        {posts.map((post, idx) => {
+          // Every 3 items, insert weather banner
+          if (idx > 0 && idx % 6 === 0) {
+            return (
+              <div key={`weather-${idx}`} className="col-span-1 md:col-span-2 lg:col-span-2">
+                <WeatherBanner />
+              </div>
+            );
+          }
+          // Show all posts as large cards for better visibility
+          return (
+            <PlantCardLarge key={post._id} post={post} onInterest={handleInterest} />
+          );
+        })}
+      </div>
+    );
   };
 
   return (
-    <div className="max-w-[480px] mx-auto px-4 pb-24 pt-4 relative z-10">
+    <div className="max-w-5xl mx-auto px-4 pb-24 pt-4 relative z-10">
       <div className="flex items-center justify-between mb-4">
         {location ? (
           <LocationPill city={location.city} countryCode={location.countryCode} onClick={() => setShowLocationModal(true)} />

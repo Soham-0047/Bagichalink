@@ -46,8 +46,8 @@ const LocationPermissionModal = ({ open, onClose }: Props) => {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/30 p-4">
-      <div className="bg-background rounded-card w-full max-w-sm p-6 card-shadow space-y-5 relative">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/30 p-4 overflow-y-auto">
+      <div className="bg-background rounded-card w-full max-w-sm max-h-[90vh] p-6 card-shadow space-y-5 relative my-auto">
         <button onClick={onClose} className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
         <div className="text-center text-6xl">🌱</div>
 

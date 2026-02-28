@@ -1,18 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { sendOTP, registerWithOTP, searchCities } from '@/lib/api';
+import { register as registerApi, sendOTP, registerWithOTP, searchCities } from '@/lib/api';
 import { useApp } from '@/context/AppContext';
 import { countryFlag } from '@/lib/helpers';
 import type { CitySearchResult } from '@/types';
 
+type RegisterMode = 'password' | 'otp';
 type Step = 'details' | 'otp';
 
 const Register = () => {
   const navigate = useNavigate();
   const { setUser } = useApp();
+  const [mode, setMode] = useState<RegisterMode>('password');
   const [step, setStep] = useState<Step>('details');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [cityQuery, setCityQuery] = useState('');
   const [cityResults, setCityResults] = useState<CitySearchResult[]>([]);
   const [selectedCity, setSelectedCity] = useState<CitySearchResult | null>(null);
@@ -52,6 +56,40 @@ const Register = () => {
       setResendCooldown(60);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to send OTP. Please try again.');
+    }
+    setLoading(false);
+  };
+
+  const handlePasswordRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name || !email) { setError('Please fill in your name and email.'); return; }
+    if (!password || !confirmPassword) { setError('Please enter a password.'); return; }
+    if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
+    if (password !== confirmPassword) { setError('Passwords do not match.'); return; }
+    if (!selectedCity) { setError('Please select your city.'); return; }
+    
+    setError('');
+    setLoading(true);
+    try {
+      const res = await registerApi({
+        name,
+        email,
+        password,
+        location: {
+          city: selectedCity.city || selectedCity.name || '',
+          country: selectedCity.country,
+          countryCode: selectedCity.countryCode,
+          lat: selectedCity.lat,
+          lon: selectedCity.lon,
+        },
+      });
+      if (res.data?.token) {
+        localStorage.setItem('bagichalink_token', res.data.token);
+        setUser(res.data.user);
+        navigate('/feed');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Registration failed. Please try again.');
     }
     setLoading(false);
   };
@@ -119,9 +157,27 @@ const Register = () => {
           </div>
         )}
 
+        {/* Mode switcher - only if not in OTP step */}
+        {step === 'details' && (
+          <div className="flex gap-1 bg-card rounded-pill p-1">
+            <button onClick={() => { setMode('password'); setError(''); }}
+              className={`flex-1 py-1.5 rounded-pill text-xs font-tag font-semibold transition-colors ${
+                mode === 'password' ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground'
+              }`}>
+              🔐 Password
+            </button>
+            <button onClick={() => { setMode('otp'); setError(''); }}
+              className={`flex-1 py-1.5 rounded-pill text-xs font-tag font-semibold transition-colors ${
+                mode === 'otp' ? 'bg-secondary text-secondary-foreground' : 'text-muted-foreground'
+              }`}>
+              📧 OTP
+            </button>
+          </div>
+        )}
+
         {/* Step 1: Details */}
         {step === 'details' && (
-          <form onSubmit={handleSendOTP} className="space-y-5">
+          <form onSubmit={mode === 'password' ? handlePasswordRegister : handleSendOTP} className="space-y-5">
             <input
               type="text" value={name} onChange={(e) => setName(e.target.value)}
               placeholder="Your name" required
@@ -132,6 +188,22 @@ const Register = () => {
               placeholder="Email address" required
               className="w-full bg-transparent border-0 border-b-2 border-border py-3 text-base font-body placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
             />
+
+            {/* Password fields - only show in password mode */}
+            {mode === 'password' && (
+              <>
+                <input
+                  type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Create a password" required
+                  className="w-full bg-transparent border-0 border-b-2 border-border py-3 text-base font-body placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+                />
+                <input
+                  type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Confirm password" required
+                  className="w-full bg-transparent border-0 border-b-2 border-border py-3 text-base font-body placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
+                />
+              </>
+            )}
 
             {/* City search */}
             <div className="space-y-2">
@@ -167,7 +239,7 @@ const Register = () => {
 
             <button type="submit" disabled={loading}
               className="w-full py-3.5 bg-secondary text-secondary-foreground rounded-pill font-body font-semibold text-base transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-50">
-              {loading ? 'Sending code...' : 'Send Verification Code 📧'}
+              {loading ? (mode === 'password' ? 'Creating account...' : 'Sending code...') : (mode === 'password' ? 'Create Account 🌿' : 'Send Verification Code 📧')}
             </button>
           </form>
         )}

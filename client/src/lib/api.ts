@@ -34,14 +34,14 @@ export const getMe = () => api.get('/auth/me');
 export const updateLocation = (data: { city: string; country: string; countryCode: string; lat: number; lon: number }) =>
   api.patch('/auth/update-location', data);
 export const updateProfile = (formData: FormData) =>
-  api.patch('/auth/update-profile', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+  api.patch('/auth/update-profile', formData);
 export const logout = () => api.post('/auth/logout');
 
 // ── Posts ─────────────────────────────────────────────────────────────────────
 export const getPosts = (params: Record<string, unknown>) => api.get('/posts', { params });
 export const getPost = (id: string) => api.get(`/posts/${id}`);
 export const createPost = (formData: FormData) =>
-  api.post('/posts', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+  api.post('/posts', formData);
 export const deletePost = (id: string) => api.delete(`/posts/${id}`);
 export const expressInterest = (postId: string) => api.post(`/posts/${postId}/interest`);
 export const markSwapped = (postId: string, swappedWithUserId?: string) =>
@@ -50,7 +50,7 @@ export const getUserPosts = (userId: string) => api.get(`/posts/user/${userId}`)
 
 // ── AI ────────────────────────────────────────────────────────────────────────
 export const analyzePlant = (formData: FormData) =>
-  api.post('/ai/analyze', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+  api.post('/ai/analyze', formData);
 export const getMatches = (postId: string) => api.post('/ai/match', { postId });
 export const getCareSchedule = (params?: { lat?: number; lon?: number }) =>
   api.get('/ai/care-schedule', { params });

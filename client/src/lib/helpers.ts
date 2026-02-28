@@ -7,15 +7,23 @@ export const countryFlag = (countryCode?: string): string => {
     .join('');
 };
 
-export const timeAgo = (dateStr: string): string => {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
+export const timeAgo = (dateStr?: string): string => {
+  if (!dateStr) return 'unknown';
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return 'unknown';
+    const diff = Date.now() - date.getTime();
+    if (diff < 0) return 'just now';
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d ago`;
+  } catch {
+    return 'unknown';
+  }
 };
 
 export const weatherEmoji = (condition?: string): string => {

@@ -28,10 +28,10 @@ const FeedFilters = ({ feedType, postType, onFeedTypeChange, onPostTypeChange }:
           key={opt.value}
           onClick={() => onFeedTypeChange(opt.value)}
           className={cn(
-            'flex items-center gap-1.5 px-3.5 py-2 rounded-pill text-sm font-tag font-medium whitespace-nowrap transition-all',
+            'flex items-center gap-1.5 px-3.5 py-2 rounded-pill text-sm font-tag font-medium whitespace-nowrap transition-all cursor-pointer',
             feedType === opt.value
-              ? 'bg-forest text-forest-foreground'
-              : 'bg-background text-foreground border border-border hover:bg-card'
+              ? 'bg-forest text-forest-foreground shadow-md'
+              : 'bg-background text-foreground border border-border hover:bg-card active:scale-95'
           )}
         >
           {opt.icon} {opt.label}
@@ -45,10 +45,10 @@ const FeedFilters = ({ feedType, postType, onFeedTypeChange, onPostTypeChange }:
           key={opt.value}
           onClick={() => onPostTypeChange(opt.value)}
           className={cn(
-            'px-3.5 py-2 rounded-pill text-sm font-tag font-medium whitespace-nowrap transition-all',
+            'px-3.5 py-2 rounded-pill text-sm font-tag font-medium whitespace-nowrap transition-all cursor-pointer',
             postType === opt.value
-              ? 'bg-forest text-forest-foreground'
-              : 'bg-background text-foreground border border-border hover:bg-card'
+              ? 'bg-forest text-forest-foreground shadow-md'
+              : 'bg-background text-foreground border border-border hover:bg-card active:scale-95'
           )}
         >
           {opt.label}

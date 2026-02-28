@@ -7,6 +7,7 @@ const OTP = require('../models/OTP');
 const { protect } = require('../middleware/auth');
 const { uploadAvatar } = require('../config/cloudinary');
 const { sendOTPEmail } = require('../utils/mailer');
+const { uploadBufferToCloudinary } = require('../config/cloudinary');
 
 const signToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -280,11 +281,21 @@ router.patch('/update-profile', protect, uploadAvatar.single('avatar'), async (r
     if (req.body.name) updates.name = req.body.name;
     if (req.body.bio !== undefined) updates.bio = req.body.bio;
     if (req.body.feedPreference) updates.feedPreference = req.body.feedPreference;
-    if (req.file) updates.avatar = req.file.path;
+
+    // Upload avatar buffer to Cloudinary if provided
+    if (req.file) {
+      const uploaded = await uploadBufferToCloudinary(
+        req.file.buffer,
+        req.file.mimetype,
+        'bagichalink/avatars'
+      );
+      updates.avatar = uploaded.secure_url;
+    }
 
     const user = await User.findByIdAndUpdate(req.user._id, updates, { new: true, runValidators: true });
     res.json({ success: true, user: user.toPublicJSON() });
   } catch (err) {
+    console.error('Update profile error:', err);
     res.status(500).json({ success: false, message: 'Failed to update profile.' });
   }
 });

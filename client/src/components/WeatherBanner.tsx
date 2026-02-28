@@ -6,8 +6,10 @@ const WeatherBanner = () => {
 
   if (!weather || !location) return null;
 
+  const temp = weather.temperature ?? 0;
+  const humidity = weather.humidity ?? 0;
   const emoji = weatherEmoji(weather.condition);
-  const isHumid = weather.humidity > 85;
+  const isHumid = humidity > 85;
 
   return (
     <div className="relative overflow-hidden rounded-card p-5 card-shadow" style={{
@@ -41,10 +43,10 @@ const WeatherBanner = () => {
         <div className="space-y-1">
           <p className="font-display italic text-lg text-foreground">{location.city}</p>
           <p className="text-2xl font-body font-semibold text-foreground">
-            {emoji} {Math.round(weather.temperature)}°C
+            {emoji} {Math.round(temp)}°C
           </p>
           <p className="text-sm font-tag text-muted-foreground">
-            {weather.humidity}% humidity
+            {humidity}% humidity
             {weather.wateringAdvice && ` · ${weather.wateringAdvice}`}
           </p>
         </div>

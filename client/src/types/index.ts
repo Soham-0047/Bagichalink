@@ -23,7 +23,8 @@ export interface Weather {
 }
 
 export interface User {
-  id: string;
+  _id?: string;  // MongoDB ID
+  id?: string;   // Alternative ID format
   name: string;
   email: string;
   avatar?: string;

@@ -56,9 +56,9 @@ const PlantCardLarge = ({ post, onInterest }: PlantCardLargeProps) => {
             {post.user?.avatar && (
               <img src={post.user.avatar} className="w-5 h-5 rounded-full object-cover" alt="" />
             )}
-            <span className="font-body">{post.user?.name}</span>
+            <span className="font-body">{post.user?.name || 'Anonymous'}</span>
             <span>·</span>
-            <span className="font-tag">📍 {post.location?.city} {flag}</span>
+            <span className="font-tag">📍 {post.location?.city || 'Unknown'} {flag}</span>
           </div>
         </div>
 

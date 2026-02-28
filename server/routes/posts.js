@@ -3,7 +3,7 @@ const router = express.Router();
 const Post = require("../models/Post");
 const User = require("../models/User");
 const { protect, optionalAuth } = require("../middleware/auth");
-const { uploadPlant, deleteImage } = require("../config/cloudinary");
+const { uploadPlant, deleteImage, uploadBufferToCloudinary } = require("../config/cloudinary");
 const { getWeather } = require("../utils/weather");
 
 // ─── GET /api/posts ───────────────────────────────────────────────────────────
@@ -69,14 +69,52 @@ router.get("/", optionalAuth, async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const [posts, total] = await Promise.all([
-      Post.find(query)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .populate("user", "name avatar location.city location.country location.countryCode"),
-      Post.countDocuments(query),
-    ]);
+    let posts = [];
+    let total = 0;
+
+    try {
+      // Build the query - geospatial queries require special handling
+      let dbQuery = Post.find(query);
+      
+      // For geospatial queries, we MUST specify sort before executing
+      if (feed === "nearby" && lat && lon) {
+        // Geospatial queries must be sorted
+        dbQuery = dbQuery.sort({ "location.coordinates": 1 });
+      } else {
+        dbQuery = dbQuery.sort({ createdAt: -1 });
+      }
+
+      // Apply pagination
+      dbQuery = dbQuery.skip(skip).limit(parseInt(limit));
+
+      // Populate and execute
+      dbQuery = dbQuery.populate("user", "name avatar location.city location.country location.countryCode");
+
+      const postsResult = await dbQuery.exec();
+      const totalResult = await Post.countDocuments(query);
+      
+      posts = postsResult;
+      total = totalResult;
+    } catch (queryErr) {
+      console.error("Post query error:", queryErr.message);
+      // If geospatial query fails, fall back to global feed
+      if (feed === "nearby") {
+        console.warn("Falling back to global feed due to geospatial query error");
+        const fallbackQuery = { isActive: true };
+        const [postsResult, totalResult] = await Promise.all([
+          Post.find(fallbackQuery)
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(parseInt(limit))
+            .populate("user", "name avatar location.city location.country location.countryCode"),
+          Post.countDocuments(fallbackQuery),
+        ]);
+        posts = postsResult;
+        total = totalResult;
+      } else {
+        throw queryErr;
+      }
+    }
 
     res.json({
       success: true,
@@ -151,10 +189,20 @@ router.post("/", protect, uploadPlant.single("image"), async (req, res) => {
       },
     };
 
-    // Attach image if uploaded
+    // Upload image to Cloudinary if provided
     if (req.file) {
-      postData.imageUrl = req.file.path;
-      postData.imagePublicId = req.file.filename;
+      try {
+        console.log("Uploading image to Cloudinary:", req.file.originalname, req.file.mimetype, "Size:", req.file.size);
+        const uploaded = await uploadBufferToCloudinary(req.file.buffer, req.file.mimetype);
+        console.log("Cloudinary upload successful:", uploaded.secure_url);
+        postData.imageUrl = uploaded.secure_url;
+        postData.imagePublicId = uploaded.public_id;
+      } catch (uploadErr) {
+        console.error("Cloudinary upload error (non-fatal):", uploadErr.message);
+        // Don't fail the whole request, but log it
+      }
+    } else {
+      console.warn("No image file provided in request");
     }
 
     const post = await Post.create(postData);

@@ -34,7 +34,7 @@ const PlantCardSmall = ({ post }: PlantCardSmallProps) => {
       </div>
       <div className="p-3 space-y-1">
         <h4 className="font-display text-sm leading-tight line-clamp-2">
-          {post.aiAnalysis?.species?.commonName || 'Unknown Plant'}
+          {post.aiAnalysis?.emoji} {post.aiAnalysis?.commonName || post.title || 'Unknown Plant'}
         </h4>
         <p className="text-[0.7rem] font-tag text-muted-foreground">
           {post.location?.city} {flag}

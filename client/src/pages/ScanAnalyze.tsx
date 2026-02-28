@@ -32,6 +32,7 @@ const ScanAnalyze = () => {
   const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
   const [cycleIndex, setCycleIndex] = useState(0);
   const [posting, setPosting] = useState(false);
+  const [error, setError] = useState<string>('');
 
   // Cycling text animation
   useEffect(() => {
@@ -43,6 +44,7 @@ const ScanAnalyze = () => {
   }, [step]);
 
   const handleFileSelect = (file: File) => {
+    setError('');
     setImageFile(file);
     const reader = new FileReader();
     reader.onload = (e) => setImagePreview(e.target?.result as string);
@@ -52,6 +54,7 @@ const ScanAnalyze = () => {
 
   const startAnalysis = async (file: File) => {
     setStep('analyzing');
+    setError('');
     try {
       const formData = new FormData();
       formData.append('image', file);
@@ -62,11 +65,22 @@ const ScanAnalyze = () => {
         formData.append('country', location.country);
       }
       const res = await analyzePlant(formData);
-      setAnalysis(res.data.aiAnalysis || res.data.analysis);
-      setImageUrl(res.data.imageUrl || imagePreview);
+      
+      // Parse response - the analysis data is at res.data.data
+      const analysisData = res.data?.data || res.data?.aiAnalysis || res.data?.analysis;
+      const uploadedImageUrl = res.data?.imageUrl;
+      
+      if (!analysisData || !analysisData.commonName) {
+        throw new Error('Invalid analysis response - missing plant data');
+      }
+      
+      setAnalysis(analysisData);
+      setImageUrl(uploadedImageUrl || imagePreview);
       setStep('result');
     } catch (e) {
       console.error('Analysis failed:', e);
+      const errorMsg = e.response?.data?.message || e.message || 'Failed to analyze image. Please try again.';
+      setError(errorMsg);
       setStep('upload');
     }
   };
@@ -77,9 +91,10 @@ const ScanAnalyze = () => {
     try {
       const formData = new FormData();
       formData.append('type', type);
-      formData.append('imageUrl', imageUrl);
+      formData.append('image', imageFile); // Send the actual image file
       formData.append('aiAnalysis', JSON.stringify(analysis));
       formData.append('tags', JSON.stringify(analysis.tags || []));
+      formData.append('title', analysis.species?.commonName || 'My Plant');
       if (location) {
         formData.append('lat', String(location.lat));
         formData.append('lon', String(location.lon));
@@ -87,17 +102,30 @@ const ScanAnalyze = () => {
         formData.append('country', location.country);
         formData.append('countryCode', location.countryCode);
       }
-      await createPost(formData);
-      // Confetti!
-      confetti({
-        particleCount: 100,
-        spread: 70,
-        colors: ['#5C7A4E', '#C4714A', '#D6E8C8', '#F2D5C4'],
-        origin: { y: 0.7 },
-      });
-      setTimeout(() => navigate('/'), 1500);
+      const res = await createPost(formData);
+      if (res.data?.success || res.data?.data) {
+        // Confetti!
+        confetti({
+          particleCount: 100,
+          spread: 70,
+          colors: ['#5C7A4E', '#C4714A', '#D6E8C8', '#F2D5C4'],
+          origin: { y: 0.7 },
+        });
+        // Delay to show confetti, then navigate to feed
+        setTimeout(() => navigate('/feed'), 2000);
+      } else {
+        alert('Post created but response unclear. Redirecting...');
+        setTimeout(() => navigate('/feed'), 1000);
+      }
     } catch (e) {
       console.error('Post creation failed:', e);
+      const errorMsg = e.response?.data?.message || e.message || 'Unknown error';
+      if (e.response?.status === 401) {
+        alert('Your session expired. Please log in again.');
+        navigate('/login');
+      } else {
+        alert(`Failed to create post: ${errorMsg}`);
+      }
     }
     setPosting(false);
   };
@@ -127,7 +155,7 @@ const ScanAnalyze = () => {
           <div className="relative h-52">
             <img src={imageUrl || imagePreview} alt="" className="w-full h-full object-cover" />
             <button
-              onClick={() => { setStep('upload'); setAnalysis(null); }}
+              onClick={() => { setStep('upload'); setAnalysis(null); setError(''); }}
               className="absolute top-4 left-4 w-10 h-10 rounded-full bg-background/80 backdrop-blur flex items-center justify-center"
             >
               <ArrowLeft className="w-5 h-5" />
@@ -215,14 +243,14 @@ const ScanAnalyze = () => {
                 disabled={posting}
                 className="w-full py-3.5 bg-forest text-forest-foreground rounded-pill font-body font-semibold text-base transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-50"
               >
-                🌱 Post as Available
+                {posting ? '📤 Posting...' : '🌱 Post as Available'}
               </button>
               <button
                 onClick={() => handlePost('wanted')}
                 disabled={posting}
                 className="w-full py-3.5 bg-background text-primary border-2 border-primary rounded-pill font-body font-semibold text-base transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-50"
               >
-                🔍 Post as Wanted
+                {posting ? '📤 Posting...' : '🔍 Post as Wanted'}
               </button>
               <button className="w-full text-center text-sm text-muted-foreground font-body hover:text-foreground">
                 Save to My Garden
@@ -251,11 +279,17 @@ const ScanAnalyze = () => {
           </p>
         </div>
 
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-card p-4 mb-6">
+            <p className="text-sm text-red-700 font-body">{error}</p>
+          </div>
+        )}
+
         {imagePreview ? (
           <div className="relative rounded-card overflow-hidden mb-6">
             <img src={imagePreview} alt="Preview" className="w-full aspect-square object-cover" />
             <button
-              onClick={() => { setImagePreview(''); setImageFile(null); }}
+              onClick={() => { setImagePreview(''); setImageFile(null); setError(''); }}
               className="absolute top-3 right-3 w-8 h-8 rounded-full bg-background/80 flex items-center justify-center"
             >
               <X className="w-4 h-4" />
