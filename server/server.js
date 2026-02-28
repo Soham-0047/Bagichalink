@@ -11,11 +11,38 @@ dotenv.config();
 const app = express();
 const httpServer = http.createServer(app);
 
+// ─── Allowed origins ──────────────────────────────────────────────────────────
+const ALLOWED_ORIGINS = [
+  "https://bagichalink.netlify.app",  // production
+  "http://localhost:8080",             // Vite default
+  "http://localhost:3000",             // alternate
+  "http://localhost:5173",             // Vite alternate
+];
+
+// Also allow any custom CLIENT_URL set in env (e.g. custom domain later)
+if (process.env.CLIENT_URL && !ALLOWED_ORIGINS.includes(process.env.CLIENT_URL)) {
+  ALLOWED_ORIGINS.push(process.env.CLIENT_URL);
+}
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, Render self-ping)
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    console.warn(`🚫 CORS blocked: ${origin}`);
+    callback(new Error(`CORS policy: origin ${origin} not allowed`));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
 // ─── Socket.io ───────────────────────────────────────────────────────────────
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.CLIENT_URL || "*",
+    origin: ALLOWED_ORIGINS,
     methods: ["GET", "POST"],
+    credentials: true,
   },
 });
 
@@ -95,10 +122,8 @@ io.on("connection", (socket) => {
 });
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
-app.use(cors({
-  origin: process.env.CLIENT_URL || "*",
-  credentials: true,
-}));
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // handle preflight for ALL routes
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
@@ -119,7 +144,7 @@ const aiLimiter = rateLimit({
 });
 
 // ─── Health check ─────────────────────────────────────────────────────────────
-// Must be BEFORE rate limiter and other routes so pings are always fast
+// Before all other routes — never rate-limited, always fast
 app.get("/health", (req, res) => {
   res.json({
     status:    "ok",
@@ -170,10 +195,9 @@ mongoose
     httpServer.listen(PORT, () => {
       console.log(`🚀 BagichaLink server running on port ${PORT}`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
+      console.log(`🔒 Allowed origins: ${ALLOWED_ORIGINS.join(", ")}`);
 
       // ── Self-ping keep-alive (prevents Render free tier sleep) ─────────────
-      // Render sleeps after 15 min inactivity. We ping every 14 min to prevent it.
-      // Set RENDER_EXTERNAL_URL in your Render environment variables.
       if (process.env.NODE_ENV === "production" && process.env.RENDER_EXTERNAL_URL) {
         const PING_URL      = `${process.env.RENDER_EXTERNAL_URL}/health`;
         const PING_INTERVAL = 14 * 60 * 1000; // 14 minutes
@@ -182,19 +206,18 @@ mongoose
           try {
             const res  = await fetch(PING_URL, { signal: AbortSignal.timeout(10_000) });
             const data = await res.json();
-            console.log(`🏓 Keep-alive ping OK — DB: ${data.db}, uptime: ${data.uptime}s`);
+            console.log(`🏓 Keep-alive OK — DB: ${data.db}, uptime: ${data.uptime}s`);
           } catch (err) {
             console.warn("🏓 Keep-alive ping failed:", err.message);
           }
         };
 
-        // First ping after 30s (let server fully settle), then every 14 min
         setTimeout(() => {
           selfPing();
           setInterval(selfPing, PING_INTERVAL);
         }, 30_000);
 
-        console.log(`🏓 Keep-alive scheduler started → pinging ${PING_URL} every 14 min`);
+        console.log(`🏓 Keep-alive scheduler started → ${PING_URL} every 14 min`);
       }
     });
   })
