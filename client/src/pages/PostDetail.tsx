@@ -1,19 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronUp, MessageCircle } from 'lucide-react';
 import { getPost, expressInterest } from '@/lib/api';
 import HealthBadge from '@/components/HealthBadge';
 import HealthStatusBar from '@/components/HealthStatusBar';
 import TypeBadge from '@/components/TypeBadge';
 import InterestButton from '@/components/InterestButton';
+import { Button } from '@/components/ui/button';
 import { countryFlag, timeAgo, weatherEmoji } from '@/lib/helpers';
 import { useToast } from '@/hooks/use-toast';
+import { useApp } from '@/context/AppContext';
 import type { Post, HealthStatus } from '@/types';
 
 const PostDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user: currentUser } = useApp();
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(true);
   const [tipsOpen, setTipsOpen] = useState(false);
@@ -213,12 +216,24 @@ const PostDetail = () => {
               </span>
             </div>
           )}
-          <InterestButton
-            count={post.interestedCount || 0}
-            isInterested={post.isInterested || false}
-            onToggle={handleInterest}
-            fullWidth
-          />
+          <div className="flex gap-2">
+            <InterestButton
+              count={post.interestedCount || 0}
+              isInterested={post.isInterested || false}
+              onToggle={handleInterest}
+              fullWidth
+            />
+            {currentUser && post.user && currentUser._id !== post.user._id && (
+              <Button
+                onClick={() => navigate(`/chat/${post.user._id}`)}
+                variant="outline"
+                className="flex-shrink-0 flex items-center gap-2"
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span className="hidden sm:inline">Chat</span>
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </div>

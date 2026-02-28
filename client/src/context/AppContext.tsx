@@ -1,9 +1,16 @@
-import { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
-import { io, Socket } from 'socket.io-client';
-import { getMe, getFullWeather } from '@/lib/api';
-import type { User, Location, Weather, FeedType, PostType, Post } from '@/types';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  ReactNode,
+} from "react";
+import { io, Socket } from "socket.io-client";
+import { getMe, getFullWeather } from "@/lib/api";
+import type { User, Location, Weather, FeedType, PostType, Post } from "@/types";
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
 
 interface AppContextType {
   user: User | null;
@@ -20,7 +27,6 @@ interface AppContextType {
   setLocationPermissionAsked: (v: boolean) => void;
   fetchWeather: (lat: number, lon: number) => Promise<void>;
   socket: Socket | null;
-  // Fixed: callback is the function directly, null to clear
   setNewPostCallback: (cb: ((post: Post) => void) | null) => void;
   isAuthenticated: boolean;
 }
@@ -31,59 +37,82 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [location, setLocation] = useState<Location | null>(() => {
     try {
-      const saved = localStorage.getItem('bagichalink_location');
+      const saved = localStorage.getItem("bagichalink_location");
       return saved ? JSON.parse(saved) : null;
     } catch { return null; }
   });
-  const [weather, setWeather] = useState<Weather | null>(null);
-  const [feedType, setFeedType] = useState<FeedType>('global');
-  const [postType, setPostType] = useState<PostType>('all');
+  const [weather, setWeather]   = useState<Weather | null>(null);
+  const [feedType, setFeedType] = useState<FeedType>("global");
+  const [postType, setPostType] = useState<PostType>("all");
   const [locationPermissionAsked, setLocationPermissionAsked] = useState(
-    () => localStorage.getItem('bagichalink_loc_asked') === 'true'
+    () => localStorage.getItem("bagichalink_loc_asked") === "true",
   );
   const [socket, setSocket] = useState<Socket | null>(null);
-  const newPostCallbackRef = useRef<((post: Post) => void) | null>(null);
+  const newPostCallbackRef  = useRef<((post: Post) => void) | null>(null);
+  // Keep a ref so the connect handler always reads the latest user
+  const userRef = useRef<User | null>(null);
 
   const isAuthenticated = !!user;
 
-  // Load current user on mount
+  // Keep userRef in sync
+  useEffect(() => { userRef.current = user; }, [user]);
+
+  // ── Load user on mount ────────────────────────────────────────────────────
   useEffect(() => {
-    const token = localStorage.getItem('bagichalink_token');
+    const token = localStorage.getItem("bagichalink_token");
     if (!token) return;
     getMe()
-      .then((res) => {
-        const u = res.data?.user || res.data;
-        setUser(u);
-      })
-      .catch(() => localStorage.removeItem('bagichalink_token'));
+      .then((res) => setUser(res.data?.user || res.data))
+      .catch(() => localStorage.removeItem("bagichalink_token"));
   }, []);
 
-  // Persist location
+  // ── Persist location ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (location) localStorage.setItem('bagichalink_location', JSON.stringify(location));
+    if (location) localStorage.setItem("bagichalink_location", JSON.stringify(location));
   }, [location]);
 
   useEffect(() => {
-    localStorage.setItem('bagichalink_loc_asked', String(locationPermissionAsked));
+    localStorage.setItem("bagichalink_loc_asked", String(locationPermissionAsked));
   }, [locationPermissionAsked]);
 
-  // Socket.io
+  // ── Socket — created once, uses ref to access latest user ────────────────
   useEffect(() => {
-    const s = io(SOCKET_URL, { transports: ['websocket', 'polling'] });
-    s.emit('join_room', 'global');
-    s.on('new_post', (post: Post) => {
+    const s = io(SOCKET_URL, {
+      transports: ["websocket", "polling"],
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 10000, // back off aggressively to avoid 429
+    });
+
+    const registerUser = () => {
+      const uid = userRef.current?.id || (userRef.current as any)?._id;
+      s.emit("join_room", "global");
+      if (uid) {
+        s.emit("user_connected", uid);
+        s.emit("join_user_room", uid);
+      }
+    };
+
+    s.on("connect", registerUser);
+
+    s.on("new_post", (post: Post) => {
       newPostCallbackRef.current?.(post);
     });
+
     setSocket(s);
     return () => { s.disconnect(); };
-  }, []);
+  }, []); // runs once only
 
+  // ── Re-register when user logs in after socket already connected ──────────
   useEffect(() => {
-    if (socket && location?.city) {
-      socket.emit('join_room', location.city.toLowerCase());
-    }
-  }, [socket, location?.city]);
+    if (!socket || !user?.id) return;
+    const uid = user.id || (user as any)._id;
+    socket.emit("user_connected", uid);
+    socket.emit("join_user_room", uid);
+    socket.emit("join_room", "global");
+    if (location?.city) socket.emit("join_room", location.city.toLowerCase());
+  }, [user?.id]); // only re-run when user id changes, NOT on socket change
 
+  // ── Weather fetch ─────────────────────────────────────────────────────────
   const fetchWeather = async (lat: number, lon: number) => {
     try {
       const res = await getFullWeather(lat, lon);
@@ -100,11 +129,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         });
       }
     } catch (e) {
-      console.error('Weather fetch failed:', e);
+      console.error("Weather fetch failed:", e);
     }
   };
 
-  // Direct setter — pass function to register, null to clear
   const setNewPostCallback = (cb: ((post: Post) => void) | null) => {
     newPostCallbackRef.current = cb;
   };
@@ -129,6 +157,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
 export const useApp = () => {
   const ctx = useContext(AppContext);
-  if (!ctx) throw new Error('useApp must be used inside AppProvider');
+  if (!ctx) throw new Error("useApp must be used inside AppProvider");
   return ctx;
 };
+
+export { AppContext };

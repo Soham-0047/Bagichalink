@@ -1,11 +1,11 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, Search, Camera, Sparkles, User } from 'lucide-react';
+import { Home, Search, Camera, Sparkles, User, MessageSquare } from 'lucide-react';
 
 const tabs = [
   { path: '/feed', icon: Home, label: 'Home' },
   { path: '/explore', icon: Search, label: 'Explore' },
   { path: '/scan', icon: Camera, label: 'Scan', isFab: true },
-  { path: '/matches', icon: Sparkles, label: 'Matches' },
+  { path: '/chat', icon: MessageSquare, label: 'Chat' },
   { path: '/profile', icon: User, label: 'Profile' },
 ];
 

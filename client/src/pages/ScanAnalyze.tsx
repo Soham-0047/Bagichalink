@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Upload, X, ArrowLeft } from 'lucide-react';
+import { Camera, Upload, X, ArrowLeft, History } from 'lucide-react';
 import { analyzePlant, createPost } from '@/lib/api';
+import { saveScanToHistory } from '@/lib/scanHistory';
 import { useApp } from '@/context/AppContext';
 import LoadingBlob from '@/components/LoadingBlob';
 import HealthBadge from '@/components/HealthBadge';
 import HealthStatusBar from '@/components/HealthStatusBar';
 import TypeBadge from '@/components/TypeBadge';
+import ShareCard from '@/components/ShareCard';
 import confetti from 'canvas-confetti';
 import type { AIAnalysis } from '@/types';
 
@@ -33,6 +35,7 @@ const ScanAnalyze = () => {
   const [cycleIndex, setCycleIndex] = useState(0);
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string>('');
+  const [showShare, setShowShare] = useState(false);
 
   // Cycling text animation
   useEffect(() => {
@@ -76,6 +79,8 @@ const ScanAnalyze = () => {
       
       setAnalysis(analysisData);
       setImageUrl(uploadedImageUrl || imagePreview);
+      // Save to local history
+      saveScanToHistory(imagePreview, analysisData);
       setStep('result');
     } catch (e) {
       console.error('Analysis failed:', e);
@@ -148,6 +153,25 @@ const ScanAnalyze = () => {
   }
 
   if (step === 'result' && analysis) {
+    if (showShare) {
+      return (
+        <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
+          <div className="max-w-2xl mx-auto p-4 lg:p-8 pt-6 pb-24">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="font-display text-xl">Share Your Discovery</h2>
+              <button
+                onClick={() => setShowShare(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <ShareCard plant={analysis} image={imageUrl || imagePreview} city={location?.city} />
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
         <div className="max-w-[480px] lg:max-w-3xl mx-auto">
@@ -160,11 +184,17 @@ const ScanAnalyze = () => {
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <div className="absolute top-4 right-4">
-              <HealthBadge status={analysis.health?.status || 'healthy'} />
+            <div className="absolute top-4 right-4 flex gap-2">
+              <button
+                onClick={() => navigate('/scan-history')}
+                className="w-10 h-10 rounded-full bg-background/80 backdrop-blur flex items-center justify-center hover:bg-background"
+              >
+                <History className="w-5 h-5" />
+              </button>
+              <HealthBadge status={(analysis.healthStatus ?? 'unknown') as any} />
             </div>
             <div className="absolute bottom-4 left-4 text-4xl">
-              {analysis.species?.emoji || '🌿'}
+              {analysis.emoji || '🌿'}
             </div>
           </div>
 
@@ -172,49 +202,54 @@ const ScanAnalyze = () => {
           <div className="p-5 space-y-5">
             {/* Species */}
             <div className="space-y-1">
-              <h1 className="font-display text-2xl">{analysis.species?.commonName}</h1>
+              <h1 className="font-display text-2xl">{analysis.emoji} {analysis.commonName}</h1>
               <p className="text-sm text-muted-foreground italic font-body">
-                {analysis.species?.scientificName}
+                {analysis.species}
               </p>
             </div>
 
             {/* Fun fact */}
-            {analysis.species?.funFact && (
+            {analysis.funFact && (
               <div className="bg-card rounded-card p-4 border-l-[3px] border-secondary">
                 <p className="text-sm italic text-muted-foreground font-body">
-                  {analysis.species.funFact}
+                  ✨ {analysis.funFact}
                 </p>
               </div>
             )}
 
             {/* Care pills */}
             <div className="flex gap-2">
-              {analysis.care?.level && (
+              {analysis.careLevel && (
                 <span className="bg-primary-light text-foreground rounded-pill px-3 py-1.5 text-xs font-tag">
-                  ⚡ {analysis.care.level}
+                  ⚡ {analysis.careLevel}
                 </span>
               )}
-              {analysis.care?.watering && (
+              {analysis.wateringFrequency && (
                 <span className="bg-primary-light text-foreground rounded-pill px-3 py-1.5 text-xs font-tag">
-                  💧 {analysis.care.watering}
+                  💧 {analysis.wateringFrequency}
                 </span>
               )}
             </div>
 
-            {/* Health Report */}
+            {/* Health & Diagnosis */}
             <div className="space-y-3">
               <h3 className="font-body font-semibold text-base">Health Report 🔍</h3>
-              <p className="text-sm font-body text-foreground">{analysis.health?.diagnosis}</p>
-              <HealthStatusBar score={analysis.health?.score || 80} />
+              <p className="text-sm font-body text-foreground">{analysis.diagnosis}</p>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-2 bg-border rounded-pill overflow-hidden">
+                  <div className="h-full bg-green-500 rounded-pill" style={{ width: '75%' }} />
+                </div>
+                <span className="text-xs font-tag font-semibold">Healthy</span>
+              </div>
             </div>
 
             {/* Tips */}
-            {analysis.care?.tips && analysis.care.tips.length > 0 && (
+            {analysis.tips && analysis.tips.length > 0 && (
               <div className="space-y-3">
                 <h3 className="font-body font-semibold text-base">
-                  Tips for Today {weather ? `${weather.condition}` : ''}
+                  Tips {weather ? `• ${weather.condition}` : ''}
                 </h3>
-                {analysis.care.tips.slice(0, 3).map((tip, i) => (
+                {analysis.tips.slice(0, 3).map((tip, i) => (
                   <div key={i} className="flex gap-3 bg-card rounded-card p-3.5 border-l-[3px] border-secondary">
                     <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-tag font-semibold">
                       {i + 1}
@@ -230,7 +265,7 @@ const ScanAnalyze = () => {
               <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
                 {analysis.tags.map((tag, i) => (
                   <span key={i} className="bg-primary-light text-foreground rounded-pill px-3 py-1 text-xs font-tag whitespace-nowrap">
-                    {tag}
+                    #{tag}
                   </span>
                 ))}
               </div>
@@ -238,6 +273,12 @@ const ScanAnalyze = () => {
 
             {/* Action buttons */}
             <div className="space-y-3 pt-2 pb-8">
+              <button
+                onClick={() => setShowShare(true)}
+                className="w-full py-3.5 bg-secondary text-secondary-foreground rounded-pill font-body font-semibold text-base transition-transform hover:scale-[1.02] active:scale-95"
+              >
+                📱 Share This Plant
+              </button>
               <button
                 onClick={() => handlePost('available')}
                 disabled={posting}
@@ -251,9 +292,6 @@ const ScanAnalyze = () => {
                 className="w-full py-3.5 bg-background text-primary border-2 border-primary rounded-pill font-body font-semibold text-base transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-50"
               >
                 {posting ? '📤 Posting...' : '🔍 Post as Wanted'}
-              </button>
-              <button className="w-full text-center text-sm text-muted-foreground font-body hover:text-foreground">
-                Save to My Garden
               </button>
             </div>
           </div>

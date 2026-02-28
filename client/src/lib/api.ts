@@ -75,4 +75,7 @@ export const registerWithOTP = (data: {
   location?: { city: string; country: string; countryCode: string; lat: number; lon: number };
 }) => api.post('/auth/register-with-otp', data);
 
+// ── Featured ──────────────────────────────────────────────────────────────────
+export const getPlantOfTheDay = () => api.get('/featured/plant-of-the-day');
+
 export default api;

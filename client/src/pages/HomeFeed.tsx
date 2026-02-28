@@ -7,14 +7,16 @@ import FeedFilters from '@/components/FeedFilters';
 import PlantCardLarge from '@/components/PlantCardLarge';
 import PlantCardSmall from '@/components/PlantCardSmall';
 import LocationPermissionModal from '@/components/LocationPermissionModal';
+import OnboardingModal from '@/components/OnboardingModal';
 import type { Post } from '@/types';
 import { Leaf } from 'lucide-react';
 
 const HomeFeed = () => {
-  const { location, feedType, postType, setFeedType, setPostType, locationPermissionAsked, setNewPostCallback } = useApp();
+  const { user, location, feedType, postType, setFeedType, setPostType, locationPermissionAsked, setNewPostCallback } = useApp();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [showLocationModal, setShowLocationModal] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [newPostToast, setNewPostToast] = useState<Post | null>(null);
 
   const fetchPosts = useCallback(async () => {
@@ -41,6 +43,14 @@ const HomeFeed = () => {
       return () => clearTimeout(timer);
     }
   }, [locationPermissionAsked, location]);
+
+  // Show onboarding for new users (0 posts)
+  useEffect(() => {
+    if (user && (user.totalPosts === 0 || user.totalPosts === undefined)) {
+      const timer = setTimeout(() => setShowOnboarding(true), 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [user]);
 
   useEffect(() => {
     setNewPostCallback((post: Post) => {
@@ -136,6 +146,7 @@ const HomeFeed = () => {
       )}
 
       <LocationPermissionModal open={showLocationModal} onClose={() => setShowLocationModal(false)} />
+      <OnboardingModal open={showOnboarding} onClose={() => setShowOnboarding(false)} />
     </div>
   );
 };

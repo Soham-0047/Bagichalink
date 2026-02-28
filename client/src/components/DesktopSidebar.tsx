@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, Search, Camera, Sparkles, User, Leaf } from 'lucide-react';
+import { Home, Search, Camera, Sparkles, User, Leaf, Map, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navItems = [
@@ -7,6 +7,8 @@ const navItems = [
   { path: '/explore', icon: Search, label: 'Explore' },
   { path: '/scan', icon: Camera, label: 'Scan', isFab: true },
   { path: '/matches', icon: Sparkles, label: 'Matches' },
+  { path: '/map', icon: Map, label: 'Plant Map' },
+  { path: '/chat', icon: MessageSquare, label: 'Messages' },
   { path: '/profile', icon: User, label: 'Profile' },
 ];
 

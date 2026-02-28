@@ -19,17 +19,79 @@ const io = new Server(httpServer, {
   },
 });
 
-// Make io accessible in routes
 app.set("io", io);
 
 io.on("connection", (socket) => {
   console.log(`🔌 Client connected: ${socket.id}`);
 
-  // Join a location room (city or "global")
+  // ── Register user to their personal room ───────────────────────────────────
+  socket.on("user_connected", (userId) => {
+    socket.userId = String(userId);
+    socket.join(`user_${userId}`);
+    console.log(`👤 User ${userId} joined personal room`);
+  });
+
+  // ── Explicit personal room join (belt + suspenders) ───────────────────────
+  socket.on("join_user_room", (userId) => {
+    socket.userId = String(userId);
+    socket.join(`user_${userId}`);
+    console.log(`👤 User ${userId} joined user room`);
+  });
+
+  // ── Join feed/city room ────────────────────────────────────────────────────
   socket.on("join_room", (room) => {
     socket.join(room);
-    socket.join("global"); // Always join global feed
+    socket.join("global");
     console.log(`📍 ${socket.id} joined room: ${room}`);
+  });
+
+  // ── Send message via socket (backup — REST is primary) ────────────────────
+  socket.on("send_message", async (data) => {
+    try {
+      const { recipientId, content, postId, senderId: clientSenderId } = data;
+      const senderId = socket.userId || clientSenderId;
+
+      if (!senderId || !recipientId || !content) {
+        socket.emit("error", "Missing required fields");
+        return;
+      }
+
+      const Message = require("./models/Message");
+      const message = await Message.create({
+        senderId,
+        recipientId,
+        content,
+        postId: postId || null,
+      });
+
+      const payload = {
+        _id:         message._id,
+        senderId:    message.senderId,
+        recipientId: message.recipientId,
+        content:     message.content,
+        isRead:      message.isRead,
+        createdAt:   message.createdAt,
+        postId:      message.postId,
+      };
+
+      io.to(`user_${recipientId}`).emit("new_message", payload);
+      io.to(`user_${senderId}`).emit("new_message", payload);
+      socket.emit("message_sent", { _id: message._id, success: true });
+    } catch (error) {
+      console.error("Socket message error:", error.message);
+      socket.emit("error", "Failed to send message");
+    }
+  });
+
+  // ── Mark message as read ───────────────────────────────────────────────────
+  socket.on("mark_read", async (messageId) => {
+    try {
+      const Message = require("./models/Message");
+      await Message.findByIdAndUpdate(messageId, { isRead: true });
+      io.emit("message_read", { messageId, isRead: true });
+    } catch (error) {
+      console.error("Mark read error:", error.message);
+    }
   });
 
   socket.on("disconnect", () => {
@@ -46,44 +108,45 @@ app.use(cors({
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// Rate limiting
+// ─── Rate Limiting ────────────────────────────────────────────────────────────
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 min
-  max: 100,
+  windowMs: 15 * 60 * 1000,
+  max: 500, // raised from 100 — socket polling was exhausting the limit
   message: { success: false, message: "Too many requests, please try again." },
+  skip: (req) => req.path.startsWith("/socket.io"), // never limit socket polling
 });
 app.use("/api", limiter);
 
-// Stricter limit for AI endpoints (Gemini free tier protection)
 const aiLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 min
+  windowMs: 60 * 1000,
   max: 10,
   message: { success: false, message: "AI rate limit hit. Please wait a moment." },
 });
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
-app.use("/api/auth",    require("./routes/auth"));
-app.use("/api/posts",   require("./routes/posts"));
-app.use("/api/ai",      aiLimiter, require("./routes/ai"));
-app.use("/api/weather", require("./routes/weather"));
-app.use("/api/users",   require("./routes/users"));
+app.use("/api/auth",     require("./routes/auth"));
+app.use("/api/posts",    require("./routes/posts"));
+app.use("/api/ai",       aiLimiter, require("./routes/ai"));
+app.use("/api/weather",  require("./routes/weather"));
+app.use("/api/users",    require("./routes/users"));
+app.use("/api/featured", require("./routes/featured"));
+app.use("/api/messages", require("./routes/messages"));
 
-// Health check
+// ─── Health check ─────────────────────────────────────────────────────────────
 app.get("/", (req, res) => {
   res.json({
     success: true,
     message: "🌿 BagichaLink API is running",
     version: "1.0.0",
-    docs: "See README.md for API documentation",
   });
 });
 
-// 404 handler
+// ─── 404 ──────────────────────────────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "Route not found" });
 });
 
-// Global error handler
+// ─── Global error handler ─────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
   console.error("❌ Error:", err.message);
   res.status(err.status || 500).json({
@@ -92,7 +155,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ─── MongoDB Connection ───────────────────────────────────────────────────────
+// ─── MongoDB + Start ──────────────────────────────────────────────────────────
 mongoose
   .connect(process.env.MONGODB_URI)
   .then(() => {

@@ -9,12 +9,16 @@ import DesktopSidebar from "@/components/DesktopSidebar";
 import Landing from "./pages/Landing";
 import HomeFeed from "./pages/HomeFeed";
 import ScanAnalyze from "./pages/ScanAnalyze";
+import ScanHistory from "./pages/ScanHistory";
 import PostDetail from "./pages/PostDetail";
 import Matches from "./pages/Matches";
 import Profile from "./pages/Profile";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import NotFound from "./pages/NotFound";
+import { PlantMapView } from "./pages/PlantMapView";
+import { ChatRoom } from "./pages/ChatRoom";
+import { Conversations } from "./pages/Conversations";
 
 const queryClient = new QueryClient();
 
@@ -33,6 +37,10 @@ const AppLayout = () => {
           <Route path="/feed" element={<HomeFeed />} />
           <Route path="/explore" element={<HomeFeed />} />
           <Route path="/scan" element={<ScanAnalyze />} />
+          <Route path="/scan-history" element={<ScanHistory />} />
+          <Route path="/map" element={<PlantMapView />} />
+          <Route path="/chat" element={<Conversations />} />
+          <Route path="/chat/:userId" element={<ChatRoom />} />
           <Route path="/post/:id" element={<PostDetail />} />
           <Route path="/matches" element={<Matches />} />
           <Route path="/profile" element={<Profile />} />
