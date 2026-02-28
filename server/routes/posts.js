@@ -9,6 +9,7 @@ const {
   uploadBufferToCloudinary,
 } = require("../config/cloudinary");
 const { getWeather } = require("../utils/weather");
+const { createAndEmit } = require("./notifications");
 
 // ─── GET /api/posts ───────────────────────────────────────────────────────────
 router.get("/", optionalAuth, async (req, res) => {
@@ -383,5 +384,54 @@ router.patch("/:id/mark-swapped", protect, async (req, res) => {
       .json({ success: false, message: "Failed to mark as swapped." });
   }
 });
+
+
+// ─── POST /api/posts/:id/interest ─────────────────────────────────────────────
+// Replace your existing interest route with this version
+router.post("/:id/interest", protect, async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id).populate("user", "name");
+    if (!post) return res.status(404).json({ success: false, message: "Post not found." });
+
+    const userId = req.user._id;
+    const alreadyInterested = post.interestedUsers.includes(userId);
+
+    if (alreadyInterested) {
+      // Toggle off
+      post.interestedUsers.pull(userId);
+      post.interestedCount = Math.max(0, post.interestedCount - 1);
+    } else {
+      // Toggle on
+      post.interestedUsers.push(userId);
+      post.interestedCount += 1;
+
+      // 🔔 Fire notification to post owner
+      const io = req.app.get("io");
+      const plantName =
+        post.aiAnalysis?.commonName || post.title || "your plant";
+
+      await createAndEmit(io, {
+        recipient:  post.user._id,
+        sender:     userId,
+        type:       "interest",
+        title:      "Someone is interested! 🌿",
+        body:       `${req.user.name} is interested in your ${plantName}`,
+        postId:     post._id,
+      });
+    }
+
+    await post.save();
+
+    res.json({
+      success: true,
+      isInterested: !alreadyInterested,
+      interestedCount: post.interestedCount,
+    });
+  } catch (err) {
+    console.error("Interest toggle error:", err.message);
+    res.status(500).json({ success: false, message: "Failed to update interest." });
+  }
+});
+
 
 module.exports = router;

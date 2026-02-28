@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const Message = require("../models/Message");
 const { protect } = require("../middleware/auth");
+const { createAndEmit } = require("./notifications");
 
 // ⚠️  ROUTE ORDER MATTERS — specific routes MUST come before /:userId wildcard
 
@@ -74,6 +75,38 @@ router.get("/conversations", protect, async (req, res) => {
 });
 
 // ─── POST /api/messages ───────────────────────────────────────────────────────
+// router.post("/", protect, async (req, res) => {
+//   try {
+//     const { recipientId, content, postId } = req.body;
+
+//     if (!recipientId || !content) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "recipientId and content are required.",
+//       });
+//     }
+
+//     const message = await Message.create({
+//       senderId:    req.user._id,
+//       recipientId,
+//       content,
+//       postId: postId || null,
+//     });
+
+//     // Emit to both participants via socket
+//     const io = req.app.get("io");
+//     if (io) {
+//       io.to(`user_${recipientId}`).emit("new_message", message);
+//       io.to(`user_${String(req.user._id)}`).emit("new_message", message);
+//     }
+
+//     res.status(201).json({ success: true, data: message });
+//   } catch (err) {
+//     console.error("Send message error:", err.message);
+//     res.status(500).json({ success: false, message: "Failed to send message." });
+//   }
+// });
+
 router.post("/", protect, async (req, res) => {
   try {
     const { recipientId, content, postId } = req.body;
@@ -92,12 +125,23 @@ router.post("/", protect, async (req, res) => {
       postId: postId || null,
     });
 
-    // Emit to both participants via socket
     const io = req.app.get("io");
+
+    // Emit message to both participants
     if (io) {
       io.to(`user_${recipientId}`).emit("new_message", message);
       io.to(`user_${String(req.user._id)}`).emit("new_message", message);
     }
+
+    // 🔔 Fire notification to recipient
+    await createAndEmit(io, {
+      recipient:  recipientId,
+      sender:     req.user._id,
+      type:       "new_message",
+      title:      "New message 💬",
+      body:       `${req.user.name}: ${content.slice(0, 60)}${content.length > 60 ? "…" : ""}`,
+      messageId:  message._id,
+    });
 
     res.status(201).json({ success: true, data: message });
   } catch (err) {

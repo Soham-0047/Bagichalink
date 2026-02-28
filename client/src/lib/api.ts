@@ -78,4 +78,12 @@ export const registerWithOTP = (data: {
 // ── Featured ──────────────────────────────────────────────────────────────────
 export const getPlantOfTheDay = () => api.get('/featured/plant-of-the-day');
 
+// ─── ADD THESE to your existing api.ts ───────────────────────────────────────
+
+// Notifications
+export const getNotifications = () => api.get("/notifications");
+export const markAllRead = () => api.patch("/notifications/read-all");
+export const markOneRead = (id: string) => api.patch(`/notifications/${id}/read`);
+export const deleteNotification = (id: string) => api.delete(`/notifications/${id}`);
+
 export default api;

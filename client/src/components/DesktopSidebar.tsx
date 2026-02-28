@@ -1,29 +1,61 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, Search, Camera, Sparkles, User, Leaf, Map, MessageSquare } from 'lucide-react';
+import { Home, Search, Camera, Sparkles, User, Leaf, Map, MessageSquare, Bell } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useApp } from '@/context/AppContext';
+import { useState, useEffect } from 'react';
+import { getNotifications } from '@/lib/api';
 
 const navItems = [
-  { path: '/feed', icon: Home, label: 'Home' },
-  { path: '/explore', icon: Search, label: 'Explore' },
-  { path: '/scan', icon: Camera, label: 'Scan', isFab: true },
-  { path: '/matches', icon: Sparkles, label: 'Matches' },
-  { path: '/map', icon: Map, label: 'Plant Map' },
-  { path: '/chat', icon: MessageSquare, label: 'Messages' },
-  { path: '/profile', icon: User, label: 'Profile' },
+  { path: '/feed',          icon: Home,          label: 'Home'        },
+  { path: '/explore',       icon: Search,        label: 'Explore'     },
+  { path: '/scan',          icon: Camera,        label: 'Scan', isFab: true },
+  { path: '/matches',       icon: Sparkles,      label: 'Matches'     },
+  { path: '/map',           icon: Map,           label: 'Plant Map'   },
+  { path: '/chat',          icon: MessageSquare, label: 'Messages'    },
+  { path: '/notifications', icon: Bell,          label: 'Notifications', hasBadge: true },
+  { path: '/profile',       icon: User,          label: 'Profile'     },
 ];
 
 const hiddenRoutes = ['/', '/login', '/register'];
 
 const DesktopSidebar = () => {
   const location = useLocation();
-  const navigate = useNavigate();
+  const navigate  = useNavigate();
+  const { socket, user } = useApp();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Fetch initial unread count
+  useEffect(() => {
+    if (!user) return;
+    getNotifications()
+      .then((res) => setUnreadCount(res.data?.data?.unreadCount || 0))
+      .catch(() => {});
+  }, [user]);
+
+  // Real-time bump on new notification
+  useEffect(() => {
+    if (!socket) return;
+    const handler = () => setUnreadCount((c) => c + 1);
+    socket.on('new_notification', handler);
+    return () => { socket.off('new_notification', handler); };
+  }, [socket]);
+
+  // Clear badge when visiting notifications
+  useEffect(() => {
+    if (location.pathname === '/notifications') {
+      setUnreadCount(0);
+    }
+  }, [location.pathname]);
 
   if (hiddenRoutes.includes(location.pathname)) return null;
 
   return (
     <aside className="hidden lg:flex fixed left-0 top-0 bottom-0 w-64 bg-background border-r border-border flex-col z-40">
       {/* Logo */}
-      <div className="px-6 py-6 flex items-center gap-3 cursor-pointer group" onClick={() => navigate('/')}>
+      <div
+        className="px-6 py-6 flex items-center gap-3 cursor-pointer group"
+        onClick={() => navigate('/')}
+      >
         <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center transition-transform group-hover:scale-110">
           <Leaf className="w-5 h-5 text-primary-foreground" />
         </div>
@@ -60,8 +92,24 @@ const DesktopSidebar = () => {
                   : 'text-muted-foreground hover:bg-card hover:text-foreground hover:translate-x-1'
               )}
             >
-              <Icon className="w-5 h-5" />
-              <span>{item.label}</span>
+              {/* Icon wrapper — relative so badge can sit on top */}
+              <div className="relative flex-shrink-0">
+                <Icon className="w-5 h-5" />
+                {item.hasBadge && unreadCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 leading-none shadow-sm">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </div>
+
+              <span className="flex-1 text-left">{item.label}</span>
+
+              {/* Inline pill badge (wider visual for sidebar) */}
+              {item.hasBadge && unreadCount > 0 && (
+                <span className="ml-auto bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full leading-none">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
             </button>
           );
         })}
@@ -70,7 +118,9 @@ const DesktopSidebar = () => {
       {/* Footer */}
       <div className="px-6 py-5 border-t border-border">
         <p className="text-xs font-tag text-muted-foreground">🌿 BagichaLink</p>
-        <p className="text-[0.65rem] font-tag text-muted-foreground/60 mt-0.5">Global Plant Swap Community</p>
+        <p className="text-[0.65rem] font-tag text-muted-foreground/60 mt-0.5">
+          Global Plant Swap Community
+        </p>
       </div>
     </aside>
   );

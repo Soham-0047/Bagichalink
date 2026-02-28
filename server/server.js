@@ -45,6 +45,7 @@ io.on("connection", (socket) => {
     console.log(`📍 ${socket.id} joined room: ${room}`);
   });
 
+
   // ── Send message via socket (backup — REST is primary) ────────────────────
   socket.on("send_message", async (data) => {
     try {
@@ -131,6 +132,8 @@ app.use("/api/weather",  require("./routes/weather"));
 app.use("/api/users",    require("./routes/users"));
 app.use("/api/featured", require("./routes/featured"));
 app.use("/api/messages", require("./routes/messages"));
+app.use("/api/notifications", require("./routes/notifications"));
+
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get("/", (req, res) => {
