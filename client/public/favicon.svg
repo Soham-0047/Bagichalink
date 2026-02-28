@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Background circle -->
+  <circle cx="50" cy="50" r="50" fill="#3d6b35"/>
+
+  <!-- Stem -->
+  <path d="M50 78 Q50 55 50 40" stroke="#a8d5a2" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+
+  <!-- Left leaf -->
+  <path d="M50 58 Q35 48 30 35 Q42 38 50 52" fill="#6abf69" opacity="0.95"/>
+
+  <!-- Right leaf -->
+  <path d="M50 48 Q65 38 70 25 Q58 30 50 44" fill="#81c784" opacity="0.95"/>
+
+  <!-- Top leaf -->
+  <path d="M50 40 Q50 22 50 18 Q58 28 54 40" fill="#a5d6a7" opacity="0.9"/>
+
+  <!-- Soil -->
+  <ellipse cx="50" cy="80" rx="18" ry="5" fill="#5d4037" opacity="0.6"/>
+  <rect x="38" y="78" width="24" height="8" rx="3" fill="#6d4c41" opacity="0.55"/>
+</svg>
