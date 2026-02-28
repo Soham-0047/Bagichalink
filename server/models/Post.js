@@ -79,7 +79,7 @@ const postSchema = new mongoose.Schema(
           enum: ["Point"],
           default: "Point",
         },
-        coords: {
+        coordinates: {
           type: [Number], // [longitude, latitude]
           index: "2dsphere",
         },

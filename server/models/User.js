@@ -46,7 +46,7 @@ const userSchema = new mongoose.Schema(
           enum: ["Point"],
           default: "Point",
         },
-        coords: {
+        coordinates: {
           type: [Number], // [longitude, latitude]
           default: [0, 0],
         },

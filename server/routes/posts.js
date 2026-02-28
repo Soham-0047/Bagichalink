@@ -30,7 +30,7 @@ router.get("/", optionalAuth, async (req, res) => {
     if (feed === "nearby" && lat && lon) {
       query["location.coordinates"] = {
         $near: {
-          $geometry: { type: "Point", coords: [parseFloat(lon), parseFloat(lat)] },
+          $geometry: { type: "Point", coordinates: [parseFloat(lon), parseFloat(lat)] },
           $maxDistance: parseInt(radius),
         },
       };
@@ -146,7 +146,7 @@ router.post("/", protect, uploadPlant.single("image"), async (req, res) => {
         displayName: city && country ? `${city}, ${country}` : city || country || "Unknown",
         coordinates: {
           type: "Point",
-          coords: [parseFloat(lon) || 0, parseFloat(lat) || 0],
+          coordinates: [parseFloat(lon) || 0, parseFloat(lat) || 0],
         },
       },
     };

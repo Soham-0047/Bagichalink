@@ -1,0 +1,449 @@
+Combined list of component files (excluding ui folder) with filenames and code.
+
+---
+
+FILE: InterestButton.tsx
+
+import { useState } from 'react';
+import { Heart } from 'lucide-react';
+
+interface InterestButtonProps {
+  count: number;
+  isInterested: boolean;
+  onToggle: () => void;
+  fullWidth?: boolean;
+}
+
+const InterestButton = ({ count, isInterested, onToggle, fullWidth = false }: InterestButtonProps) => {
+  const [bouncing, setBouncing] = useState(false);
+
+  const handleClick = () => {
+    setBouncing(true);
+    onToggle();
+    if (navigator.vibrate) navigator.vibrate(50);
+    setTimeout(() => setBouncing(false), 300);
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      className={`inline-flex items-center gap-2 rounded-pill font-body font-medium transition-all active:scale-95 ${
+        fullWidth ? 'w-full justify-center py-3.5 text-base' : 'px-4 py-2 text-sm'
+      } ${
+        isInterested
+          ? 'bg-secondary text-secondary-foreground'
+          : 'bg-forest text-forest-foreground hover:bg-forest/90'
+      }`}
+    >
+      <Heart
+        className={`w-4 h-4 transition-transform ${
+          bouncing ? 'animate-count-bounce' : ''
+        } ${isInterested ? 'fill-current' : ''}`}
+      />
+      {isInterested ? 'Interested' : "I'm Interested →"}
+      <span className={`font-tag text-xs ${bouncing ? 'animate-count-bounce' : ''}`}>
+        {count}
+      </span>
+    </button>
+  );
+};
+
+export default InterestButton;
+
+---
+
+FILE: LocationPermissionModal.tsx
+
+import { useState, useEffect } from 'react';
+import { MapPin, Search as SearchIcon, X } from 'lucide-react';
+import { searchCities } from '@/lib/api';
+import { useApp } from '@/context/AppContext';
+import { countryFlag } from '@/lib/helpers';
+import type { CitySearchResult } from '@/types';
+
+interface Props { open: boolean; onClose: () => void; }
+
+const LocationPermissionModal = ({ open, onClose }: Props) => {
+  const { setLocation, fetchWeather, setLocationPermissionAsked } = useApp();
+  const [showSearch, setShowSearch] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<CitySearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (!query || query.length < 2) { setResults([]); return; }
+    const timeout = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await searchCities(query);
+        setResults((res.data?.data || res.data || []).map((r: any) => ({ ...r, city: r.name || r.city })));
+      } catch { setResults([]); }
+      setSearching(false);
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [query]);
+
+  const handleAllow = () => {
+    setLocationPermissionAsked(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { fetchWeather(pos.coords.latitude, pos.coords.longitude); onClose(); },
+      () => setShowSearch(true)
+    );
+  };
+
+  const handleSelectCity = (city: CitySearchResult) => {
+    setLocationPermissionAsked(true);
+    const cityName = city.city || city.name || '';
+    setLocation({ city: cityName, country: city.country, countryCode: city.countryCode, lat: city.lat, lon: city.lon, displayName: `${cityName}, ${city.country}` });
+    fetchWeather(city.lat, city.lon);
+    onClose();
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/30 p-4">
+      <div className="bg-background rounded-card w-full max-w-sm p-6 card-shadow space-y-5 relative">
+        <button onClick={onClose} className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+        <div className="text-center text-6xl">🌱</div>
+
+        {!showSearch ? (
+          <>
+            <div className="text-center space-y-2">
+              <h2 className="font-display text-xl">Help us show plants near you 📍</h2>
+              <p className="text-sm text-muted-foreground font-body">We'll use your location for weather-aware plant care tips and nearby matches.</p>
+            </div>
+            <button onClick={handleAllow} className="w-full py-3 bg-secondary text-secondary-foreground rounded-pill font-body font-semibold text-base transition-transform hover:scale-[1.02] active:scale-95">
+              <MapPin className="w-4 h-4 inline mr-2" />Allow Location
+            </button>
+            <button onClick={() => setShowSearch(true)} className="w-full text-center text-sm text-muted-foreground hover:text-foreground font-body">
+              Search my city instead
+            </button>
+          </>
+        ) : (
+          <>
+            <h2 className="font-display text-xl text-center">Find your city 🏙️</h2>
+            <div className="relative">
+              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search city..." autoFocus
+                className="w-full pl-10 pr-4 py-3 bg-card rounded-card border-0 text-sm font-body placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30" />
+            </div>
+            <div className="max-h-48 overflow-y-auto space-y-1">
+              {searching && <p className="text-sm text-muted-foreground text-center py-2">Searching...</p>}
+              {results.map((city, i) => (
+                <button key={i} onClick={() => handleSelectCity(city)}
+                  className="w-full text-left px-4 py-3 rounded-lg hover:bg-card transition-colors flex items-center gap-2">
+                  <span>{countryFlag(city.countryCode)}</span>
+                  <span className="font-body text-sm">{city.city || city.name}, {city.country}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default LocationPermissionModal;
+
+---
+
+FILE: LoadingBlob.tsx
+
+const LoadingBlob = () => {
+  return (
+    <div className="relative w-full h-full min-h-[300px] flex items-center justify-center overflow-hidden">
+      {/* Blob 1 */}
+      <div
+        className="absolute w-64 h-64 rounded-full animate-blob opacity-60"
+        style={{
+          background: 'hsl(105 40% 85%)',
+          filter: 'blur(40px)',
+          top: '20%',
+          left: '20%',
+        }}
+      />
+      {/* Blob 2 */}
+      <div
+        className="absolute w-48 h-48 rounded-full animate-blob opacity-60"
+        style={{
+          background: 'hsl(20 72% 85%)',
+          filter: 'blur(40px)',
+          bottom: '20%',
+          right: '20%',
+          animationDelay: '2s',
+        }}
+      />
+      {/* Blob 3 */}
+      <div
+        className="absolute w-40 h-40 rounded-full animate-blob opacity-40"
+        style={{
+          background: 'hsl(107 22% 39% / 0.3)',
+          filter: 'blur(30px)',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          animationDelay: '4s',
+        }}
+      />
+    </div>
+  );
+};
+
+export default LoadingBlob;
+
+---
+
+FILE: HealthStatusBar.tsx
+
+interface HealthStatusBarProps {
+  score: number; // 0-100
+}
+
+const HealthStatusBar = ({ score }: HealthStatusBarProps) => {
+  const segments = 5;
+  const filledSegments = Math.round((score / 100) * segments);
+
+  const getColor = (i: number) => {
+    if (i < 2) return 'bg-success';
+    if (i < 4) return 'bg-warning';
+    return 'bg-danger';
+  };
+
+  return (
+    <div className="flex gap-1 w-full">
+      {Array.from({ length: segments }).map((_, i) => (
+        <div
+          key={i}
+          className={`h-2 flex-1 rounded-pill transition-all ${
+            i < filledSegments ? getColor(i) : 'bg-border'
+          }`}
+        />
+      ))}
+    </div>
+  );
+};
+
+export default HealthStatusBar;
+
+---
+
+FILE: HealthBadge.tsx
+
+import { cn } from '@/lib/utils';
+
+interface HealthBadgeProps {
+  status: 'healthy' | 'attention' | 'critical';
+  size?: 'sm' | 'md';
+}
+
+const statusConfig = {
+  healthy: { label: '🟢 Healthy', className: 'bg-primary-light text-foreground' },
+  attention: { label: '🟡 Needs Attention', className: 'bg-[hsl(42,65%,90%)] text-foreground' },
+  critical: { label: '🔴 Critical', className: 'bg-[hsl(10,60%,90%)] text-foreground' },
+};
+
+const HealthBadge = ({ status, size = 'md' }: HealthBadgeProps) => {
+  const config = statusConfig[status];
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-pill font-tag font-medium',
+        config.className,
+        size === 'sm' ? 'px-2 py-0.5 text-[0.65rem]' : 'px-3 py-1 text-xs'
+      )}
+    >
+      {config.label}
+    </span>
+  );
+};
+
+export default HealthBadge;
+
+---
+
+FILE: FloatingNav.tsx
+
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Home, Search, Camera, Sparkles, User } from 'lucide-react';
+
+const tabs = [
+  { path: '/feed', icon: Home, label: 'Home' },
+  { path: '/explore', icon: Search, label: 'Explore' },
+  { path: '/scan', icon: Camera, label: 'Scan', isFab: true },
+  { path: '/matches', icon: Sparkles, label: 'Matches' },
+  { path: '/profile', icon: User, label: 'Profile' },
+];
+
+const hiddenRoutes = ['/', '/login', '/register'];
+
+const FloatingNav = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  if (hiddenRoutes.includes(location.pathname)) return null;
+
+  return (
+    <nav className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 bg-forest rounded-pill px-6 py-2 nav-shadow lg:hidden">
+      {tabs.map((tab) => {
+        const isActive = location.pathname === tab.path;
+        const Icon = tab.icon;
+
+        if (tab.isFab) {
+          return (
+            <button
+              key={tab.path}
+              onClick={() => navigate(tab.path)}
+              className="relative -mt-8 mx-2 w-14 h-14 rounded-full bg-secondary text-secondary-foreground flex items-center justify-center shadow-lg transition-transform duration-200 hover:scale-110 active:scale-90"
+            >
+              <span className="absolute inset-0 rounded-full border-2 border-primary/30 animate-fab-pulse" />
+              <span className="absolute inset-0 rounded-full border-2 border-primary/20 animate-fab-pulse" style={{ animationDelay: '1s' }} />
+              <Icon className="w-6 h-6 relative z-10" />
+            </button>
+          );
+        }
+
+        return (
+          <button
+            key={tab.path}
+            onClick={() => navigate(tab.path)}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 ${
+              isActive
+                ? 'bg-forest-foreground/15 text-forest-foreground scale-110'
+                : 'text-forest-foreground/60 hover:text-forest-foreground/80 hover:scale-105'
+            }`}
+          >
+            <Icon className="w-5 h-5" />
+          </button>
+        );
+      })}
+    </nav>
+  );
+};
+
+export default FloatingNav;
+
+---
+
+FILE: FeedFilters.tsx
+
+import { cn } from '@/lib/utils';
+import type { FeedType, PostTypeFilter } from '@/types';
+
+interface FeedFiltersProps {
+  feedType: FeedType;
+  postType: PostTypeFilter;
+  onFeedTypeChange: (f: FeedType) => void;
+  onPostTypeChange: (p: PostTypeFilter) => void;
+}
+
+const feedOptions: { value: FeedType; label: string; icon: string }[] = [
+  { value: 'global', label: 'Global', icon: '🌍' },
+  { value: 'nearby', label: 'Nearby', icon: '📍' },
+  { value: 'city', label: 'My City', icon: '🏙️' },
+];
+
+const postOptions: { value: PostTypeFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'available', label: 'Available' },
+  { value: 'wanted', label: 'Wanted' },
+];
+
+const FeedFilters = ({ feedType, postType, onFeedTypeChange, onPostTypeChange }: FeedFiltersProps) => {
+  return (
+    <div className="flex items-center gap-2 overflow-x-auto scrollbar-none py-1 -mx-4 px-4">
+      {feedOptions.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onFeedTypeChange(opt.value)}
+          className={cn(
+            'flex items-center gap-1.5 px-3.5 py-2 rounded-pill text-sm font-tag font-medium whitespace-nowrap transition-all',
+            feedType === opt.value
+              ? 'bg-forest text-forest-foreground'
+              : 'bg-background text-foreground border border-border hover:bg-card'
+          )}
+        >
+          {opt.icon} {opt.label}
+        </button>
+      ))}
+
+      <div className="w-px h-6 bg-border flex-shrink-0" />
+
+      {postOptions.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onPostTypeChange(opt.value)}
+          className={cn(
+            'px-3.5 py-2 rounded-pill text-sm font-tag font-medium whitespace-nowrap transition-all',
+            postType === opt.value
+              ? 'bg-forest text-forest-foreground'
+              : 'bg-background text-foreground border border-border hover:bg-card'
+          )}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+};
+
+export default FeedFilters;
+
+---
+
+FILE: LocationPill.tsx
+
+import { countryFlag } from '@/lib/helpers';
+
+interface LocationPillProps {
+  city: string;
+  countryCode: string;
+  size?: 'sm' | 'md';
+  onClick?: () => void;
+}
+
+const LocationPill = ({ city, countryCode, size = 'md', onClick }: LocationPillProps) => {
+  const flag = countryFlag(countryCode);
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 bg-secondary text-secondary-foreground rounded-pill font-tag font-medium transition-transform hover:scale-105 ${
+        size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm'
+      }`}
+    >
+      📍 {city}, {flag}
+    </button>
+  );
+};
+
+export default LocationPill;
+
+---
+
+FILE: DesktopSidebar.tsx
+
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Home, Search, Camera, Sparkles, User, Leaf } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+const navItems = [
+  { path: '/feed', icon: Home, label: 'Home' },
+  { path: '/explore', icon: Search, label: 'Explore' },
+  { path: '/scan', icon: Camera, label: 'Scan', isFab: true },
+  { path: '/matches', icon: Sparkles, label: 'Matches' },
+  { path: '/profile', icon: User, label: 'Profile' },
+];
+
+const hiddenRoutes = ['/', '/login', '/register'];
+
+const DesktopSidebar = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  if (hiddenRoutes.includes(location.pathname)) return null;
+
+  return (
+    <aside className="hidden lg:flex fixed left-0 top-0 bottom-0 w-64 bg-background border-r border-border flex-col z-40">
+      {/* Logo */}
+      <div className="px-6 py-6 flex items-center gap-3 cursor-pointer group" onClick={() => navigate('/')}>

@@ -1,0 +1,835 @@
+All files under server directory with filename headers.
+
+---
+
+FILE: server.js
+
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const mongoose = require("mongoose");
+const cors = require("cors");
+const dotenv = require("dotenv");
+const rateLimit = require("express-rate-limit");
+
+dotenv.config();
+
+const app = express();
+const httpServer = http.createServer(app);
+
+// ─── Socket.io ───────────────────────────────────────────────────────────────
+const io = new Server(httpServer, {
+  cors: {
+    origin: process.env.CLIENT_URL || "*",
+    methods: ["GET", "POST"],
+  },
+});
+
+// Make io accessible in routes
+app.set("io", io);
+
+io.on("connection", (socket) => {
+  console.log(`🔌 Client connected: ${socket.id}`);
+
+  // Join a location room (city or "global")
+  socket.on("join_room", (room) => {
+    socket.join(room);
+    socket.join("global"); // Always join global feed
+    console.log(`📍 ${socket.id} joined room: ${room}`);
+  });
+
+  socket.on("disconnect", () => {
+    console.log(`❌ Client disconnected: ${socket.id}`);
+  });
+});
+
+// ─── Middleware ───────────────────────────────────────────────────────────────
+app.use(cors({
+  origin: process.env.CLIENT_URL || "*",
+  credentials: true,
+}));
+
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 min
+  max: 100,
+  message: { success: false, message: "Too many requests, please try again." },
+});
+app.use("/api", limiter);
+
+// Stricter limit for AI endpoints (Gemini free tier protection)
+const aiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 min
+  max: 10,
+  message: { success: false, message: "AI rate limit hit. Please wait a moment." },
+});
+
+// ─── Routes ──────────────────────────────────────────────────────────────────
+app.use("/api/auth",    require("./routes/auth"));
+app.use("/api/posts",   require("./routes/posts"));
+app.use("/api/ai",      aiLimiter, require("./routes/ai"));
+app.use("/api/weather", require("./routes/weather"));
+app.use("/api/users",   require("./routes/users"));
+
+// Health check
+app.get("/", (req, res) => {
+  res.json({
+    success: true,
+    message: "🌿 BagichaLink API is running",
+    version: "1.0.0",
+    docs: "See README.md for API documentation",
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: "Route not found" });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error("❌ Error:", err.message);
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || "Internal server error",
+  });
+});
+
+// ─── MongoDB Connection ───────────────────────────────────────────────────────
+mongoose
+  .connect(process.env.MONGODB_URI)
+  .then(() => {
+    console.log("✅ MongoDB connected");
+    const PORT = process.env.PORT || 5000;
+    httpServer.listen(PORT, () => {
+      console.log(`🚀 BagichaLink server running on port ${PORT}`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
+    });
+  })
+  .catch((err) => {
+    console.error("❌ MongoDB connection failed:", err.message);
+    process.exit(1);
+  });
+
+module.exports = { app, io };
+
+---
+
+FILE: config/cloudinary.js
+
+const cloudinary = require("cloudinary").v2;
+const multer = require("multer");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key:    process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// Storage for plant images
+const plantStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "bagichalink/plants",
+    allowed_formats: ["jpg", "jpeg", "png", "webp"],
+    transformation: [
+      { width: 800, height: 800, crop: "limit" }, // Max 800x800
+      { quality: "auto:good" },
+      { fetch_format: "auto" },
+    ],
+  },
+});
+
+// Storage for avatars
+const avatarStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "bagichalink/avatars",
+    allowed_formats: ["jpg", "jpeg", "png", "webp"],
+    transformation: [
+      { width: 200, height: 200, crop: "fill", gravity: "face" },
+      { quality: "auto:good" },
+    ],
+  },
+});
+
+const uploadPlant = multer({
+  storage: plantStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"), false);
+    }
+  },
+});
+
+const uploadAvatar = multer({
+  storage: avatarStorage,
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
+});
+
+const deleteImage = async (publicId) => {
+  try {
+    await cloudinary.uploader.destroy(publicId);
+  } catch (err) {
+    console.error("Cloudinary delete error:", err.message);
+  }
+};
+
+module.exports = { cloudinary, uploadPlant, uploadAvatar, deleteImage };
+
+---
+
+FILE: middleware/auth.js
+
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
+
+const protect = async (req, res, next) => {
+  try {
+    let token;
+
+    if (
+      req.headers.authorization &&
+      req.headers.authorization.startsWith("Bearer ")
+    ) {
+      token = req.headers.authorization.split(" ")[1];
+    }
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated. Please log in.",
+      });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const user = await User.findById(decoded.id).select("-password");
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User no longer exists.",
+      });
+    }
+
+    req.user = user;
+    next();
+  } catch (err) {
+    return res.status(401).json({
+      success: false,
+      message: "Invalid or expired token. Please log in again.",
+    });
+  }
+};
+
+// Optional auth – attaches user if token present, but doesn't block if not
+const optionalAuth = async (req, res, next) => {
+  try {
+    let token;
+    if (
+      req.headers.authorization &&
+      req.headers.authorization.startsWith("Bearer ")
+    ) {
+      token = req.headers.authorization.split(" ")[1];
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      req.user = await User.findById(decoded.id).select("-password");
+    }
+  } catch (err) {
+    // Silent fail – just continue without user
+  }
+  next();
+};
+
+module.exports = { protect, optionalAuth };
+
+---
+
+FILE: models/User.js
+
+const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
+
+const userSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: [true, "Name is required"],
+      trim: true,
+      minlength: 2,
+      maxlength: 50,
+    },
+    email: {
+      type: String,
+      required: [true, "Email is required"],
+      unique: true,
+      lowercase: true,
+      trim: true,
+      match: [/^\S+@\S+\.\S+$/, "Please enter a valid email"],
+    },
+    password: {
+      type: String,
+      required: [true, "Password is required"],
+      minlength: 6,
+      select: false, // Never return password in queries
+    },
+    avatar: {
+      type: String,
+      default: null,
+    },
+    bio: {
+      type: String,
+      maxlength: 200,
+      default: "",
+    },
+
+    // ── Location ────────────────────────────────────────────────────────────
+    location: {
+      city: { type: String, default: "" },
+      country: { type: String, default: "" },
+      countryCode: { type: String, default: "" }, // e.g. "IN", "US"
+      // GeoJSON Point for MongoDB $near queries
+      coordinates: {
+        type: {
+          type: String,
+          enum: ["Point"],
+          default: "Point",
+        },
+        coords: {
+          type: [Number], // [longitude, latitude]
+          default: [0, 0],
+        },
+      },
+    },
+
+    // ── Stats ────────────────────────────────────────────────────────────────
+    totalPosts: { type: Number, default: 0 },
+    totalSwaps: { type: Number, default: 0 },
+
+    // ── Preferences ──────────────────────────────────────────────────────────
+    feedPreference: {
+      type: String,
+      enum: ["global", "nearby", "city"],
+      default: "global",
+    },
+    notificationsEnabled: { type: Boolean, default: true },
+
+    isVerified: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now },
+  },
+  { timestamps: true }
+);
+
+// Index for geospatial queries
+userSchema.index({ "location.coordinates": "2dsphere" });
+
+// Hash password before saving
+userSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
+  this.password = await bcrypt.hash(this.password, 12);
+  next();
+});
+
+// Compare password method
+userSchema.methods.comparePassword = async function (candidatePassword) {
+  return bcrypt.compare(candidatePassword, this.password);
+};
+
+// Clean up output (remove sensitive fields)
+userSchema.methods.toPublicJSON = function () {
+  return {
+    id: this._id,
+    name: this.name,
+    email: this.email,
+    avatar: this.avatar,
+    bio: this.bio,
+    location: this.location,
+    totalPosts: this.totalPosts,
+    totalSwaps: this.totalSwaps,
+    feedPreference: this.feedPreference,
+    createdAt: this.createdAt,
+  };
+};
+
+module.exports = mongoose.model("User", userSchema);
+
+---
+
+FILE: models/Post.js
+
+const mongoose = require("mongoose");
+
+const postSchema = new mongoose.Schema(
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+
+    // ── Post Type ────────────────────────────────────────────────────────────
+    type: {
+      type: String,
+      enum: ["available", "wanted"],
+      required: [true, "Post type is required"],
+    },
+
+    // ── Plant Info (from user + AI) ──────────────────────────────────────────
+    title: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+    },
+    description: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: "",
+    },
+    imageUrl: {
+      type: String,
+      default: null,
+    },
+    imagePublicId: {
+      type: String, // Cloudinary public ID for deletion
+      default: null,
+    },
+
+    // ── AI Analysis (from Gemini) ────────────────────────────────────────────
+    aiAnalysis: {
+      species: { type: String, default: "" },
+      commonName: { type: String, default: "" },
+      diagnosis: { type: String, default: "" },
+      healthStatus: {
+        type: String,
+        enum: ["healthy", "attention_needed", "critical", "unknown"],
+        default: "unknown",
+      },
+      tips: { type: [String], default: [] },
+      emoji: { type: String, default: "🌿" },
+      careLevel: {
+        type: String,
+        enum: ["easy", "moderate", "expert"],
+        default: "moderate",
+      },
+      wateringFrequency: { type: String, default: "" },
+      sunlight: { type: String, default: "" },
+      analyzedAt: { type: Date, default: null },
+    },
+
+    // ── Weather at time of post (snapshot) ──────────────────────────────────
+    weatherSnapshot: {
+      temperature: { type: Number, default: null }, // Celsius
+      humidity: { type: Number, default: null },    // %
+      condition: { type: String, default: "" },      // e.g. "Partly Cloudy"
+      windspeed: { type: Number, default: null },
+    },
+
+    // ── Location ─────────────────────────────────────────────────────────────
+    location: {
+      city: { type: String, default: "" },
+      country: { type: String, default: "" },
+      countryCode: { type: String, default: "" },
+      displayName: { type: String, default: "" }, // "Mumbai, India"
+      // GeoJSON for $near queries
+      coordinates: {
+        type: {
+          type: String,
+          enum: ["Point"],
+          default: "Point",
+        },
+        coords: {
+          type: [Number], // [longitude, latitude]
+          index: "2dsphere",
+        },
+      },
+    },
+
+    // ── Engagement ───────────────────────────────────────────────────────────
+    interestedUsers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+    interestedCount: { type: Number, default: 0 },
+
+    isActive: { type: Boolean, default: true },
+    isSwapped: { type: Boolean, default: false },
+    swappedAt: { type: Date, default: null },
+    swappedWith: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    // ── Tags (auto-generated from AI or user-added) ──────────────────────────
+    tags: { type: [String], default: [] },
+  },
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+  }
+);
+
+// Geospatial index
+postSchema.index({ "location.coordinates": "2dsphere" });
+postSchema.index({ createdAt: -1 }); // For feed sorting
+postSchema.index({ "location.city": 1, type: 1 });
+postSchema.index({ tags: 1 });
+
+// Virtual: is this post less than 24 hours old?
+postSchema.virtual("isNew").get(function () {
+  return Date.now() - this.createdAt < 24 * 60 * 60 * 1000;
+});
+
+module.exports = mongoose.model("Post", postSchema);
+
+---
+
+FILE: routes/auth.js
+
+const express = require("express");
+const router = express.Router();
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
+const { protect } = require("../middleware/auth");
+const { uploadAvatar } = require("../config/cloudinary");
+
+const signToken = (id) =>
+  jwt.sign({ id }, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRES_IN || "7d",
+  });
+
+// ─── POST /api/auth/register ─────────────────────────────────────────────────
+router.post("/register", async (req, res) => {
+  try {
+    const { name, email, password, location } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ success: false, message: "Name, email, and password are required." });
+    }
+
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(409).json({ success: false, message: "An account with this email already exists." });
+    }
+
+    const userData = { name, email, password };
+
+    // Attach location if provided
+    if (location) {
+      userData.location = {
+        city: location.city || "",
+        country: location.country || "",
+        countryCode: location.countryCode || "",
+        coordinates: {
+          type: "Point",
+          coords: [location.lon || 0, location.lat || 0],
+        },
+      };
+    }
+
+    const user = await User.create(userData);
+    const token = signToken(user._id);
+
+    res.status(201).json({
+      success: true,
+      message: "Welcome to BagichaLink! 🌿",
+      token,
+      user: user.toPublicJSON(),
+    });
+  } catch (err) {
+    console.error("Register error:", err);
+    res.status(500).json({ success: false, message: "Registration failed. Please try again." });
+  }
+});
+
+// ─── POST /api/auth/login ─────────────────────────────────────────────────────
+router.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: "Email and password are required." });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() }).select("+password");
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Invalid email or password." });
+    }
+
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: "Invalid email or password." });
+    }
+
+    const token = signToken(user._id);
+
+    res.json({
+      success: true,
+      message: "Welcome back! 🌱",
+      token,
+      user: user.toPublicJSON(),
+    });
+  } catch (err) {
+    console.error("Login error:", err);
+    res.status(500).json({ success: false, message: "Login failed. Please try again." });
+  }
+});
+
+// ─── GET /api/auth/me ─────────────────────────────────────────────────────────
+router.get("/me", protect, async (req, res) => {
+  res.json({ success: true, user: req.user.toPublicJSON() });
+});
+
+// ─── PATCH /api/auth/update-location ─────────────────────────────────────────
+router.patch("/update-location", protect, async (req, res) => {
+  try {
+    const { city, country, countryCode, lat, lon } = req.body;
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      {
+        location: {
+          city,
+          country,
+          countryCode,
+          coordinates: {
+            type: "Point",
+            coords: [lon || 0, lat || 0],
+          },
+        },
+      },
+      { new: true }
+    );
+
+    res.json({ success: true, message: "Location updated.", user: user.toPublicJSON() });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to update location." });
+  }
+});
+
+// ─── PATCH /api/auth/update-profile ──────────────────────────────────────────
+router.patch("/update-profile", protect, uploadAvatar.single("avatar"), async (req, res) => {
+  try {
+    const updates = {};
+
+    if (req.body.name) updates.name = req.body.name;
+    if (req.body.bio !== undefined) updates.bio = req.body.bio;
+    if (req.body.feedPreference) updates.feedPreference = req.body.feedPreference;
+    if (req.file) updates.avatar = req.file.path;
+
+    const user = await User.findByIdAndUpdate(req.user._id, updates, { new: true, runValidators: true });
+
+    res.json({ success: true, message: "Profile updated.", user: user.toPublicJSON() });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Failed to update profile." });
+  }
+});
+
+// ─── POST /api/auth/logout ────────────────────────────────────────────────────
+router.post("/logout", protect, (req, res) => {
+  // JWT is stateless — client just deletes the token
+  res.json({ success: true, message: "Logged out successfully." });
+});
+
+module.exports = router;
+
+---
+
+FILE: routes/posts.js
+
+const express = require("express");
+const router = express.Router();
+const Post = require("../models/Post");
+const User = require("../models/User");
+const { protect, optionalAuth } = require("../middleware/auth");
+const { uploadPlant, deleteImage } = require("../config/cloudinary");
+const { getWeather } = require("../utils/weather");
+
+// ─── GET /api/posts ───────────────────────────────────────────────────────────
+// Public feed with filtering: global | city | nearby | type | search
+router.get("/", optionalAuth, async (req, res) => {
+  try {
+    const {
+      feed = "global",  // global | nearby | city
+      type,            // available | wanted
+      lat,
+      lon,
+      city,
+      radius = 50000,  // meters (default 50km)
+      search,
+      tags,
+      page = 1,
+      limit = 20,
+      healthStatus,
+    } = req.query;
+
+    const query = { isActive: true };
+
+    // Feed filter
+    if (feed === "nearby" && lat && lon) {
+      query["location.coordinates"] = {
+        $near: {
+          $geometry: { type: "Point", coords: [parseFloat(lon), parseFloat(lat)] },
+          $maxDistance: parseInt(radius),
+        },
+      };
+    } else if (feed === "city" && city) {
+      query["location.city"] = { $regex: new RegExp(city, "i") };
+    }
+    // global: no filter
+
+    // Type filter
+    if (type && ["available", "wanted"].includes(type)) {
+      query.type = type;
+    }
+
+    // Health filter
+    if (healthStatus) {
+      query["aiAnalysis.healthStatus"] = healthStatus;
+    }
+
+    // Tag filter
+    if (tags) {
+      const tagArr = tags.split(",").map((t) => t.trim());
+      query.tags = { $in: tagArr };
+    }
+
+    // Search (species name, title, description)
+    if (search) {
+      const regex = new RegExp(search, "i");
+      query.$or = [
+        { title: regex },
+        { "aiAnalysis.commonName": regex },
+        { "aiAnalysis.species": regex },
+        { description: regex },
+        { tags: { $in: [regex] } },
+      ];
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const [posts, total] = await Promise.all([
+      Post.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .populate("user", "name avatar location.city location.country location.countryCode"),
+      Post.countDocuments(query),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        posts,
+        pagination: {
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(total / parseInt(limit)),
+          hasMore: skip + posts.length < total,
+        },
+      },
+    });
+  } catch (err) {
+    console.error("Get posts error:", err);
+    res.status(500).json({ success: false, message: "Failed to fetch posts." });
+  }
+});
+
+// ─── POST /api/posts ──────────────────────────────────────────────────────────
+// Create a new post (with image upload)
+router.post("/", protect, uploadPlant.single("image"), async (req, res) => {
+  try {
+    const { type, title, description, lat, lon, city, country, countryCode, aiAnalysis, tags } = req.body;
+
+    if (!type || !["available", "wanted"].includes(type)) {
+      return res.status(400).json({ success: false, message: "Post type must be 'available' or 'wanted'." });
+    }
+
+    // Parse aiAnalysis if sent as string (from FormData)
+    let parsedAI = {};
+    try {
+      parsedAI = typeof aiAnalysis === "string" ? JSON.parse(aiAnalysis) : (aiAnalysis || {});
+    } catch (_) {}
+
+    // Parse tags
+    let parsedTags = [];
+    try {
+      parsedTags = typeof tags === "string" ? JSON.parse(tags) : (tags || []);
+    } catch (_) {}
+
+    // Fetch live weather snapshot at time of post
+    let weatherSnapshot = {};
+    if (lat && lon) {
+      const weather = await getWeather(parseFloat(lat), parseFloat(lon));
+      weatherSnapshot = {
+        temperature: weather.temperature,
+        humidity: weather.humidity,
+        condition: weather.condition,
+        windspeed: weather.windspeed,
+      };
+    }
+
+    const postData = {
+      user: req.user._id,
+      type,
+      title: title || parsedAI.commonName || parsedAI.species || "My Plant",
+      description: description || "",
+      aiAnalysis: parsedAI,
+      weatherSnapshot,
+      tags: parsedTags.length ? parsedTags : (parsedAI.tags || []),
+      location: {
+        city: city || "",
+        country: country || "",
+        countryCode: countryCode || "",
+        displayName: city && country ? `${city}, ${country}` : city || country || "Unknown",
+        coordinates: {
+          type: "Point",
+          coords: [parseFloat(lon) || 0, parseFloat(lat) || 0],
+        },
+      },
+    };
+
+    // Attach image if uploaded
+    if (req.file) {
+      postData.imageUrl = req.file.path;
+      postData.imagePublicId = req.file.filename;
+    }
+
+    const post = await Post.create(postData);
+    await post.populate("user", "name avatar location.city location.country");
+
+    // Update user's post count
+    await User.findByIdAndUpdate(req.user._id, { $inc: { totalPosts: 1 } });
+
+    // 🔴 Emit realtime event to all relevant rooms
+    const io = req.app.get("io");
+    if (io) {
+      const postData_emit = post.toJSON();
+      io.to("global").emit("new_post", postData_emit);
+      if (post.location?.city) {
+        io.to(post.location.city.toLowerCase()).emit("new_post", postData_emit);
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      message: "Post created! 🌿",
+      data: post,
+    });
+  } catch (err) {
+    console.error("Create post error:", err);
+    res.status(500).json({ success: false, message: "Failed to create post." });
+  }
+});
+
+```
