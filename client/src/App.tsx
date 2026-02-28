@@ -20,6 +20,7 @@ import { PlantMapView } from "./pages/PlantMapView";
 import { ChatRoom } from "./pages/ChatRoom";
 import { Conversations } from "./pages/Conversations";
 import Notifications from "./pages/Notifications";
+import WakeScreen from "./pages/WakeScreen";
 
 const queryClient = new QueryClient();
 
@@ -63,7 +64,9 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <WakeScreen> 
           <AppLayout />
+          </WakeScreen>
         </BrowserRouter>
       </TooltipProvider>
     </AppProvider>

@@ -24,29 +24,24 @@ app.set("io", io);
 io.on("connection", (socket) => {
   console.log(`🔌 Client connected: ${socket.id}`);
 
-  // ── Register user to their personal room ───────────────────────────────────
   socket.on("user_connected", (userId) => {
     socket.userId = String(userId);
     socket.join(`user_${userId}`);
     console.log(`👤 User ${userId} joined personal room`);
   });
 
-  // ── Explicit personal room join (belt + suspenders) ───────────────────────
   socket.on("join_user_room", (userId) => {
     socket.userId = String(userId);
     socket.join(`user_${userId}`);
     console.log(`👤 User ${userId} joined user room`);
   });
 
-  // ── Join feed/city room ────────────────────────────────────────────────────
   socket.on("join_room", (room) => {
     socket.join(room);
     socket.join("global");
     console.log(`📍 ${socket.id} joined room: ${room}`);
   });
 
-
-  // ── Send message via socket (backup — REST is primary) ────────────────────
   socket.on("send_message", async (data) => {
     try {
       const { recipientId, content, postId, senderId: clientSenderId } = data;
@@ -84,7 +79,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ── Mark message as read ───────────────────────────────────────────────────
   socket.on("mark_read", async (messageId) => {
     try {
       const Message = require("./models/Message");
@@ -112,9 +106,9 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 // ─── Rate Limiting ────────────────────────────────────────────────────────────
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 500, // raised from 100 — socket polling was exhausting the limit
+  max: 500,
   message: { success: false, message: "Too many requests, please try again." },
-  skip: (req) => req.path.startsWith("/socket.io"), // never limit socket polling
+  skip: (req) => req.path.startsWith("/socket.io"),
 });
 app.use("/api", limiter);
 
@@ -124,18 +118,17 @@ const aiLimiter = rateLimit({
   message: { success: false, message: "AI rate limit hit. Please wait a moment." },
 });
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
-app.use("/api/auth",     require("./routes/auth"));
-app.use("/api/posts",    require("./routes/posts"));
-app.use("/api/ai",       aiLimiter, require("./routes/ai"));
-app.use("/api/weather",  require("./routes/weather"));
-app.use("/api/users",    require("./routes/users"));
-app.use("/api/featured", require("./routes/featured"));
-app.use("/api/messages", require("./routes/messages"));
-app.use("/api/notifications", require("./routes/notifications"));
-
-
 // ─── Health check ─────────────────────────────────────────────────────────────
+// Must be BEFORE rate limiter and other routes so pings are always fast
+app.get("/health", (req, res) => {
+  res.json({
+    status:    "ok",
+    uptime:    Math.round(process.uptime()),
+    timestamp: new Date().toISOString(),
+    db:        mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+  });
+});
+
 app.get("/", (req, res) => {
   res.json({
     success: true,
@@ -143,6 +136,16 @@ app.get("/", (req, res) => {
     version: "1.0.0",
   });
 });
+
+// ─── Routes ──────────────────────────────────────────────────────────────────
+app.use("/api/auth",          require("./routes/auth"));
+app.use("/api/posts",         require("./routes/posts"));
+app.use("/api/ai",            aiLimiter, require("./routes/ai"));
+app.use("/api/weather",       require("./routes/weather"));
+app.use("/api/users",         require("./routes/users"));
+app.use("/api/featured",      require("./routes/featured"));
+app.use("/api/messages",      require("./routes/messages"));
+app.use("/api/notifications", require("./routes/notifications"));
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────
 app.use((req, res) => {
@@ -167,6 +170,32 @@ mongoose
     httpServer.listen(PORT, () => {
       console.log(`🚀 BagichaLink server running on port ${PORT}`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
+
+      // ── Self-ping keep-alive (prevents Render free tier sleep) ─────────────
+      // Render sleeps after 15 min inactivity. We ping every 14 min to prevent it.
+      // Set RENDER_EXTERNAL_URL in your Render environment variables.
+      if (process.env.NODE_ENV === "production" && process.env.RENDER_EXTERNAL_URL) {
+        const PING_URL      = `${process.env.RENDER_EXTERNAL_URL}/health`;
+        const PING_INTERVAL = 14 * 60 * 1000; // 14 minutes
+
+        const selfPing = async () => {
+          try {
+            const res  = await fetch(PING_URL, { signal: AbortSignal.timeout(10_000) });
+            const data = await res.json();
+            console.log(`🏓 Keep-alive ping OK — DB: ${data.db}, uptime: ${data.uptime}s`);
+          } catch (err) {
+            console.warn("🏓 Keep-alive ping failed:", err.message);
+          }
+        };
+
+        // First ping after 30s (let server fully settle), then every 14 min
+        setTimeout(() => {
+          selfPing();
+          setInterval(selfPing, PING_INTERVAL);
+        }, 30_000);
+
+        console.log(`🏓 Keep-alive scheduler started → pinging ${PING_URL} every 14 min`);
+      }
     });
   })
   .catch((err) => {
