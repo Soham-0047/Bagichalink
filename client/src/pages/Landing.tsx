@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { Camera, Sparkles, Globe, Leaf, ArrowRight, Heart, MapPin, Zap, Shield, Users } from 'lucide-react';
 import heroImage from '@/assets/hero-plants.jpg';
-import scanImage from '@/assets/scan-illustration.jpg';
+// import scanImage from '@/assets/scan-illustration.jpg';
+import scanImage from '@/assets/scan-illu.png';
 import communityImage from '@/assets/community-illustration.jpg';
 import { useInView } from 'react-intersection-observer';
 import { cn } from '@/lib/utils';
@@ -315,7 +316,7 @@ const Landing = () => {
                 <img
                   src={scanImage}
                   alt="AI plant scanning"
-                  className="rounded-[2rem] w-72 md:w-80 card-shadow"
+                  className="rounded-[2rem] w-81 card-shadow"
                 />
                 <div className="absolute -top-6 -left-6 w-32 h-32 rounded-full bg-secondary-light/30 animate-blob -z-10" />
               </div>

@@ -137,11 +137,6 @@ const limiter = rateLimit({
 });
 app.use("/api", limiter);
 
-const aiLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 10,
-  message: { success: false, message: "AI rate limit hit. Please wait a moment." },
-});
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 // Before all other routes — never rate-limited, always fast
@@ -165,7 +160,7 @@ app.get("/", (req, res) => {
 // ─── Routes ──────────────────────────────────────────────────────────────────
 app.use("/api/auth",          require("./routes/auth"));
 app.use("/api/posts",         require("./routes/posts"));
-app.use("/api/ai",            aiLimiter, require("./routes/ai"));
+app.use("/api/ai",            require("./routes/ai")); // per-user limits handled inside route
 app.use("/api/weather",       require("./routes/weather"));
 app.use("/api/users",         require("./routes/users"));
 app.use("/api/featured",      require("./routes/featured"));

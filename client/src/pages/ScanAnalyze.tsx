@@ -6,13 +6,20 @@ import { saveScanToHistory } from '@/lib/scanHistory';
 import { useApp } from '@/context/AppContext';
 import LoadingBlob from '@/components/LoadingBlob';
 import HealthBadge from '@/components/HealthBadge';
-import HealthStatusBar from '@/components/HealthStatusBar';
-import TypeBadge from '@/components/TypeBadge';
 import ShareCard from '@/components/ShareCard';
+import RateLimitModal from '@/components/RateLimitModal';
 import confetti from 'canvas-confetti';
 import type { AIAnalysis } from '@/types';
 
 type Step = 'upload' | 'analyzing' | 'result';
+
+interface RateLimitInfo {
+  endpoint: 'analyze' | 'match' | 'schedule';
+  retryAfter: number;
+  limit: number;
+  windowHours: number;
+  message?: string;
+}
 
 const cyclingTexts = [
   'Identifying species...',
@@ -24,20 +31,20 @@ const cyclingTexts = [
 const ScanAnalyze = () => {
   const navigate = useNavigate();
   const { location, weather } = useApp();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef   = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  const [step, setStep] = useState<Step>('upload');
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string>('');
-  const [imageUrl, setImageUrl] = useState<string>('');
-  const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
-  const [cycleIndex, setCycleIndex] = useState(0);
-  const [posting, setPosting] = useState(false);
-  const [error, setError] = useState<string>('');
-  const [showShare, setShowShare] = useState(false);
+  const [step,          setStep]          = useState<Step>('upload');
+  const [imageFile,     setImageFile]     = useState<File | null>(null);
+  const [imagePreview,  setImagePreview]  = useState<string>('');
+  const [imageUrl,      setImageUrl]      = useState<string>('');
+  const [analysis,      setAnalysis]      = useState<AIAnalysis | null>(null);
+  const [cycleIndex,    setCycleIndex]    = useState(0);
+  const [posting,       setPosting]       = useState(false);
+  const [error,         setError]         = useState<string>('');
+  const [showShare,     setShowShare]     = useState(false);
+  const [rateLimitInfo, setRateLimitInfo] = useState<RateLimitInfo | null>(null);
 
-  // Cycling text animation
   useEffect(() => {
     if (step !== 'analyzing') return;
     const interval = setInterval(() => {
@@ -62,28 +69,41 @@ const ScanAnalyze = () => {
       const formData = new FormData();
       formData.append('image', file);
       if (location) {
-        formData.append('lat', String(location.lat));
-        formData.append('lon', String(location.lon));
-        formData.append('city', location.city);
+        formData.append('lat',     String(location.lat));
+        formData.append('lon',     String(location.lon));
+        formData.append('city',    location.city);
         formData.append('country', location.country);
       }
       const res = await analyzePlant(formData);
-      
-      // Parse response - the analysis data is at res.data.data
-      const analysisData = res.data?.data || res.data?.aiAnalysis || res.data?.analysis;
+
+      const analysisData   = res.data?.data || res.data?.aiAnalysis || res.data?.analysis;
       const uploadedImageUrl = res.data?.imageUrl;
-      
+
       if (!analysisData || !analysisData.commonName) {
         throw new Error('Invalid analysis response - missing plant data');
       }
-      
+
       setAnalysis(analysisData);
       setImageUrl(uploadedImageUrl || imagePreview);
-      // Save to local history
       saveScanToHistory(imagePreview, analysisData);
       setStep('result');
-    } catch (e) {
+
+    } catch (e: any) {
       console.error('Analysis failed:', e);
+
+      // ── 429 — rate limit hit ────────────────────────────────────────────────
+      if (e.response?.status === 429) {
+        setRateLimitInfo({
+          endpoint:    'analyze',
+          retryAfter:  e.response.data?.retryAfter  ?? 3600,
+          limit:       e.response.data?.limit        ?? 10,
+          windowHours: e.response.data?.windowHours  ?? 1,
+          message:     e.response.data?.message,
+        });
+        setStep('upload');
+        return;
+      }
+
       const errorMsg = e.response?.data?.message || e.message || 'Failed to analyze image. Please try again.';
       setError(errorMsg);
       setStep('upload');
@@ -95,46 +115,44 @@ const ScanAnalyze = () => {
     setPosting(true);
     try {
       const formData = new FormData();
-      formData.append('type', type);
-      formData.append('image', imageFile); // Send the actual image file
+      formData.append('type',       type);
+      formData.append('image',      imageFile);
       formData.append('aiAnalysis', JSON.stringify(analysis));
-      formData.append('tags', JSON.stringify(analysis.tags || []));
-      formData.append('title', analysis.species?.commonName || 'My Plant');
+      formData.append('tags',       JSON.stringify(analysis.tags || []));
+      formData.append('title',      analysis.species?.commonName || 'My Plant');
       if (location) {
-        formData.append('lat', String(location.lat));
-        formData.append('lon', String(location.lon));
-        formData.append('city', location.city);
-        formData.append('country', location.country);
+        formData.append('lat',         String(location.lat));
+        formData.append('lon',         String(location.lon));
+        formData.append('city',        location.city);
+        formData.append('country',     location.country);
         formData.append('countryCode', location.countryCode);
       }
       const res = await createPost(formData);
       if (res.data?.success || res.data?.data) {
-        // Confetti!
         confetti({
           particleCount: 100,
           spread: 70,
           colors: ['#5C7A4E', '#C4714A', '#D6E8C8', '#F2D5C4'],
           origin: { y: 0.7 },
         });
-        // Delay to show confetti, then navigate to feed
         setTimeout(() => navigate('/feed'), 2000);
       } else {
-        alert('Post created but response unclear. Redirecting...');
         setTimeout(() => navigate('/feed'), 1000);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Post creation failed:', e);
-      const errorMsg = e.response?.data?.message || e.message || 'Unknown error';
       if (e.response?.status === 401) {
         alert('Your session expired. Please log in again.');
         navigate('/login');
       } else {
+        const errorMsg = e.response?.data?.message || e.message || 'Unknown error';
         alert(`Failed to create post: ${errorMsg}`);
       }
     }
     setPosting(false);
   };
 
+  // ── Analyzing screen ────────────────────────────────────────────────────────
   if (step === 'analyzing') {
     return (
       <div className="fixed inset-0 z-50 bg-background flex flex-col items-center justify-center">
@@ -152,6 +170,7 @@ const ScanAnalyze = () => {
     );
   }
 
+  // ── Result screen ───────────────────────────────────────────────────────────
   if (step === 'result' && analysis) {
     if (showShare) {
       return (
@@ -159,10 +178,7 @@ const ScanAnalyze = () => {
           <div className="max-w-2xl mx-auto p-4 lg:p-8 pt-6 pb-24">
             <div className="flex items-center justify-between mb-6">
               <h2 className="font-display text-xl">Share Your Discovery</h2>
-              <button
-                onClick={() => setShowShare(false)}
-                className="text-muted-foreground hover:text-foreground"
-              >
+              <button onClick={() => setShowShare(false)} className="text-muted-foreground hover:text-foreground">
                 <X className="w-6 h-6" />
               </button>
             </div>
@@ -175,7 +191,6 @@ const ScanAnalyze = () => {
     return (
       <div className="fixed inset-0 z-50 bg-background overflow-y-auto">
         <div className="max-w-[480px] lg:max-w-3xl mx-auto">
-          {/* Plant Image */}
           <div className="relative h-52">
             <img src={imageUrl || imagePreview} alt="" className="w-full h-full object-cover" />
             <button
@@ -193,31 +208,21 @@ const ScanAnalyze = () => {
               </button>
               <HealthBadge status={(analysis.healthStatus ?? 'unknown') as any} />
             </div>
-            <div className="absolute bottom-4 left-4 text-4xl">
-              {analysis.emoji || '🌿'}
-            </div>
+            <div className="absolute bottom-4 left-4 text-4xl">{analysis.emoji || '🌿'}</div>
           </div>
 
-          {/* Content */}
           <div className="p-5 space-y-5">
-            {/* Species */}
             <div className="space-y-1">
               <h1 className="font-display text-2xl">{analysis.emoji} {analysis.commonName}</h1>
-              <p className="text-sm text-muted-foreground italic font-body">
-                {analysis.species}
-              </p>
+              <p className="text-sm text-muted-foreground italic font-body">{analysis.species}</p>
             </div>
 
-            {/* Fun fact */}
             {analysis.funFact && (
               <div className="bg-card rounded-card p-4 border-l-[3px] border-secondary">
-                <p className="text-sm italic text-muted-foreground font-body">
-                  ✨ {analysis.funFact}
-                </p>
+                <p className="text-sm italic text-muted-foreground font-body">✨ {analysis.funFact}</p>
               </div>
             )}
 
-            {/* Care pills */}
             <div className="flex gap-2">
               {analysis.careLevel && (
                 <span className="bg-primary-light text-foreground rounded-pill px-3 py-1.5 text-xs font-tag">
@@ -231,7 +236,6 @@ const ScanAnalyze = () => {
               )}
             </div>
 
-            {/* Health & Diagnosis */}
             <div className="space-y-3">
               <h3 className="font-body font-semibold text-base">Health Report 🔍</h3>
               <p className="text-sm font-body text-foreground">{analysis.diagnosis}</p>
@@ -243,7 +247,6 @@ const ScanAnalyze = () => {
               </div>
             </div>
 
-            {/* Tips */}
             {analysis.tips && analysis.tips.length > 0 && (
               <div className="space-y-3">
                 <h3 className="font-body font-semibold text-base">
@@ -260,7 +263,6 @@ const ScanAnalyze = () => {
               </div>
             )}
 
-            {/* Tags */}
             {analysis.tags && analysis.tags.length > 0 && (
               <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
                 {analysis.tags.map((tag, i) => (
@@ -271,26 +273,17 @@ const ScanAnalyze = () => {
               </div>
             )}
 
-            {/* Action buttons */}
             <div className="space-y-3 pt-2 pb-8">
-              <button
-                onClick={() => setShowShare(true)}
-                className="w-full py-3.5 bg-secondary text-secondary-foreground rounded-pill font-body font-semibold text-base transition-transform hover:scale-[1.02] active:scale-95"
-              >
+              <button onClick={() => setShowShare(true)}
+                className="w-full py-3.5 bg-secondary text-secondary-foreground rounded-pill font-body font-semibold text-base transition-transform hover:scale-[1.02] active:scale-95">
                 📱 Share This Plant
               </button>
-              <button
-                onClick={() => handlePost('available')}
-                disabled={posting}
-                className="w-full py-3.5 bg-forest text-forest-foreground rounded-pill font-body font-semibold text-base transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-50"
-              >
+              <button onClick={() => handlePost('available')} disabled={posting}
+                className="w-full py-3.5 bg-forest text-forest-foreground rounded-pill font-body font-semibold text-base transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-50">
                 {posting ? '📤 Posting...' : '🌱 Post as Available'}
               </button>
-              <button
-                onClick={() => handlePost('wanted')}
-                disabled={posting}
-                className="w-full py-3.5 bg-background text-primary border-2 border-primary rounded-pill font-body font-semibold text-base transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-50"
-              >
+              <button onClick={() => handlePost('wanted')} disabled={posting}
+                className="w-full py-3.5 bg-background text-primary border-2 border-primary rounded-pill font-body font-semibold text-base transition-transform hover:scale-[1.02] active:scale-95 disabled:opacity-50">
                 {posting ? '📤 Posting...' : '🔍 Post as Wanted'}
               </button>
             </div>
@@ -300,7 +293,7 @@ const ScanAnalyze = () => {
     );
   }
 
-  // Upload step
+  // ── Upload screen ───────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 bg-background">
       <div className="max-w-[480px] lg:max-w-3xl mx-auto px-4 lg:px-8 pt-6 pb-24 lg:pb-8">
@@ -312,9 +305,7 @@ const ScanAnalyze = () => {
 
         <div className="text-center mb-8 space-y-2">
           <h1 className="font-display text-2xl">Scan Your Plant</h1>
-          <p className="text-sm text-muted-foreground font-body">
-            AI will diagnose it and match it for swap
-          </p>
+          <p className="text-sm text-muted-foreground font-body">AI will diagnose it and match it for swap</p>
         </div>
 
         {error && (
@@ -335,50 +326,35 @@ const ScanAnalyze = () => {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-4 mb-6">
-            <button
-              onClick={() => cameraInputRef.current?.click()}
-              className="aspect-square rounded-card bg-card card-shadow flex flex-col items-center justify-center gap-3 transition-all hover:-translate-y-0.5 hover:card-shadow-hover active:scale-95"
-            >
+            <button onClick={() => cameraInputRef.current?.click()}
+              className="aspect-square rounded-card bg-card card-shadow flex flex-col items-center justify-center gap-3 transition-all hover:-translate-y-0.5 hover:card-shadow-hover active:scale-95">
               <Camera className="w-12 h-12 text-primary" />
               <span className="font-body font-medium text-sm">Take Photo</span>
             </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="aspect-square rounded-card bg-card card-shadow flex flex-col items-center justify-center gap-3 transition-all hover:-translate-y-0.5 hover:card-shadow-hover active:scale-95"
-            >
+            <button onClick={() => fileInputRef.current?.click()}
+              className="aspect-square rounded-card bg-card card-shadow flex flex-col items-center justify-center gap-3 transition-all hover:-translate-y-0.5 hover:card-shadow-hover active:scale-95">
               <Upload className="w-12 h-12 text-primary" />
               <span className="font-body font-medium text-sm">Upload Photo</span>
             </button>
           </div>
         )}
 
-        {location && (
-          <p className="text-xs text-muted-foreground text-center font-tag">
-            📍 Using your location for weather-aware tips
-          </p>
-        )}
-        {!location && (
-          <p className="text-xs text-muted-foreground text-center font-tag">
-            Location unavailable — tips will be general
-          </p>
-        )}
+        {location
+          ? <p className="text-xs text-muted-foreground text-center font-tag">📍 Using your location for weather-aware tips</p>
+          : <p className="text-xs text-muted-foreground text-center font-tag">Location unavailable — tips will be general</p>
+        }
 
-        <input
-          ref={cameraInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
-        />
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
-        />
+        <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden"
+          onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])} />
+        <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
+          onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])} />
       </div>
+
+      {/* Rate limit modal — shown when 429 response received */}
+      <RateLimitModal
+        info={rateLimitInfo}
+        onClose={() => setRateLimitInfo(null)}
+      />
     </div>
   );
 };
