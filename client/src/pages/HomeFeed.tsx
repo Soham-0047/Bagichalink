@@ -7,7 +7,7 @@ import FeedFilters from '@/components/FeedFilters';
 import PlantCardLarge from '@/components/PlantCardLarge';
 import PlantCardSmall from '@/components/PlantCardSmall';
 import LocationPermissionModal from '@/components/LocationPermissionModal';
-import OnboardingModal from '@/components/OnboardingModal';
+import OnboardingModal, { ONBOARDING_KEY } from '@/components/OnboardingModal';
 import type { Post } from '@/types';
 import { Leaf } from 'lucide-react';
 
@@ -16,8 +16,19 @@ const HomeFeed = () => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [showLocationModal, setShowLocationModal] = useState(false);
-  const [showOnboarding, setShowOnboarding] = useState(false);
   const [newPostToast, setNewPostToast] = useState<Post | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+  // Only show if user has never completed or skipped onboarding
+  try {
+    return localStorage.getItem(ONBOARDING_KEY) !== 'true';
+  } catch {
+    return false;
+  }
+});
+
+// Your existing onClose handler just needs to set state:
+const handleOnboardingClose = () => setShowOnboarding(false);
+
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
@@ -146,7 +157,7 @@ const HomeFeed = () => {
       )}
 
       <LocationPermissionModal open={showLocationModal} onClose={() => setShowLocationModal(false)} />
-      <OnboardingModal open={showOnboarding} onClose={() => setShowOnboarding(false)} />
+      <OnboardingModal open={showOnboarding} onClose={handleOnboardingClose} />
     </div>
   );
 };

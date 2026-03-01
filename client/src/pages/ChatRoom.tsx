@@ -2,7 +2,6 @@ import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import LoadingBlob from "../components/LoadingBlob";
-import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { useApp } from "../context/AppContext";
 import { Send, ArrowLeft } from "lucide-react";
@@ -34,19 +33,16 @@ export const ChatRoom: React.FC = () => {
   const [messageInput, setMessageInput] = useState("");
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // currentUser id — handles both {id} and {_id} shapes
   const myId = currentUser?.id || (currentUser as any)?._id;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  useEffect(() => { scrollToBottom(); }, [messages]);
 
-  // Register this socket with the server so DMs are delivered
   useEffect(() => {
     if (socket && myId) {
       socket.emit("user_connected", myId);
@@ -54,7 +50,6 @@ export const ChatRoom: React.FC = () => {
     }
   }, [socket, myId]);
 
-  // Fetch messages + other user info on mount
   useEffect(() => {
     const fetchData = async () => {
       if (!userId || !myId) return;
@@ -63,7 +58,6 @@ export const ChatRoom: React.FC = () => {
           api.get(`/messages/${userId}?page=1&limit=50`),
           api.get(`/users/${userId}`),
         ]);
-
         const messageList = messagesRes.data?.data || [];
         setMessages(Array.isArray(messageList) ? messageList : []);
         setOtherUser(userRes.data?.data || userRes.data);
@@ -73,51 +67,37 @@ export const ChatRoom: React.FC = () => {
         setLoading(false);
       }
     };
-
     fetchData();
   }, [userId, myId]);
 
-  // Listen for real-time incoming messages
   useEffect(() => {
     if (!socket || !userId) return;
-
     const handleNewMessage = (message: Message) => {
-      const senderStr   = String(message.senderId);
-      const recipStr    = String(message.recipientId);
-      const myIdStr     = String(myId);
-      const otherIdStr  = String(userId);
-
-      const isThisConversation =
+      const senderStr  = String(message.senderId);
+      const recipStr   = String(message.recipientId);
+      const myIdStr    = String(myId);
+      const otherIdStr = String(userId);
+      const isThis =
         (senderStr === otherIdStr && recipStr === myIdStr) ||
         (senderStr === myIdStr   && recipStr === otherIdStr);
-
-      if (isThisConversation) {
+      if (isThis) {
         setMessages((prev) => {
-          // Deduplicate by _id
           const exists = prev.some((m) => String(m._id) === String(message._id));
           return exists ? prev : [...prev, message];
         });
       }
     };
-
     socket.on("new_message", handleNewMessage);
     return () => { socket.off("new_message", handleNewMessage); };
   }, [socket, userId, myId]);
 
   const handleSendMessage = async () => {
     if (!messageInput.trim() || !userId || sending) return;
-
     setSending(true);
     const content = messageInput;
     setMessageInput("");
-
     try {
-      // Always use REST — guarantees persistence + triggers socket emit on server
-      const response = await api.post("/messages", {
-        recipientId: userId,
-        content,
-      });
-
+      const response = await api.post("/messages", { recipientId: userId, content });
       const saved: Message = response.data?.data;
       if (saved) {
         setMessages((prev) => {
@@ -127,9 +107,11 @@ export const ChatRoom: React.FC = () => {
       }
     } catch (error) {
       console.error("Error sending message:", error);
-      setMessageInput(content); // Restore on error
+      setMessageInput(content);
     } finally {
       setSending(false);
+      // Re-focus input after send on mobile
+      setTimeout(() => inputRef.current?.focus(), 100);
     }
   };
 
@@ -157,71 +139,64 @@ export const ChatRoom: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-white">
-      {/* Header */}
-      <div className="flex items-center gap-4 bg-gradient-to-r from-green-600 to-green-500 text-white p-4 shadow-md">
+    /*
+      Key fix: h-[100dvh] uses dynamic viewport height — on mobile this
+      accounts for the browser chrome (address bar) appearing/disappearing.
+      The input bar is sticky to the bottom of THIS container, not the window,
+      so it never gets covered by the floating nav (which is hidden on chat rooms).
+    */
+    <div className="flex flex-col bg-white" style={{ height: '100dvh', maxHeight: '100dvh' }}>
+
+      {/* ── Header ── */}
+      <div className="flex-shrink-0 flex items-center gap-3 bg-gradient-to-r from-green-600 to-green-500 text-white px-4 py-3 shadow-md"
+        style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
         <button
           onClick={() => navigate(-1)}
-          className="hover:bg-white/20 p-2 rounded transition"
+          className="hover:bg-white/20 p-2 rounded-full transition"
         >
           <ArrowLeft size={20} />
         </button>
-        <div className="flex items-center gap-3 flex-1">
-          {/* Avatar */}
-          {otherUser?.avatar || otherUser?.profilePicture ? (
-            <img
-              src={otherUser.avatar || otherUser.profilePicture}
-              alt={otherUser.name}
-              className="w-10 h-10 rounded-full object-cover border-2 border-white/30"
-            />
-          ) : (
-            <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center font-bold text-lg">
-              {(otherUser?.name || "U")[0].toUpperCase()}
-            </div>
-          )}
-          <div>
-            <h1 className="text-lg font-bold leading-tight">{otherUser?.name || "User"}</h1>
-            <p className="text-xs text-green-100">Plant swapper</p>
+        {/* Avatar */}
+        {otherUser?.avatar || otherUser?.profilePicture ? (
+          <img
+            src={otherUser.avatar || otherUser.profilePicture}
+            alt={otherUser.name}
+            className="w-10 h-10 rounded-full object-cover border-2 border-white/30 flex-shrink-0"
+          />
+        ) : (
+          <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center font-bold text-lg flex-shrink-0">
+            {(otherUser?.name || "U")[0].toUpperCase()}
           </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <h1 className="text-base font-bold leading-tight truncate">{otherUser?.name || "User"}</h1>
+          <p className="text-xs text-green-100">Plant swapper</p>
         </div>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto bg-gray-50 p-4 space-y-3">
+      {/* ── Messages ── */}
+      <div className="flex-1 overflow-y-auto bg-gray-50 px-4 py-3 space-y-3 overscroll-contain">
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full text-gray-400">
             <div className="text-center">
               <span className="text-4xl mb-3 block">💬</span>
-              <p className="font-medium">No messages yet</p>
-              <p className="text-sm mt-1">Start the conversation!</p>
+              <p className="font-medium text-sm">No messages yet</p>
+              <p className="text-xs mt-1">Start the conversation!</p>
             </div>
           </div>
         ) : (
           messages.map((message) => {
-            // Robust own-message check — handles ObjectId vs string comparison
-            const isOwnMessage =
-              String(message.senderId) === String(myId);
-
+            const isOwn = String(message.senderId) === String(myId);
             return (
-              <div
-                key={message._id}
-                className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}
-              >
-                <div
-                  className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm shadow-sm ${
-                    isOwnMessage
-                      ? "bg-green-500 text-white rounded-br-sm"
-                      : "bg-white text-gray-800 border border-gray-100 rounded-bl-sm"
-                  }`}
-                >
-                  <p className="leading-relaxed">{message.content}</p>
-                  <p className={`text-[0.65rem] mt-1 text-right ${
-                    isOwnMessage ? "text-green-100" : "text-gray-400"
-                  }`}>
-                    {new Date(message.createdAt).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+              <div key={message._id} className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[78%] px-4 py-2.5 rounded-2xl text-sm shadow-sm ${
+                  isOwn
+                    ? "bg-green-500 text-white rounded-br-sm"
+                    : "bg-white text-gray-800 border border-gray-100 rounded-bl-sm"
+                }`}>
+                  <p className="leading-relaxed break-words">{message.content}</p>
+                  <p className={`text-[0.6rem] mt-1 text-right ${isOwn ? "text-green-100" : "text-gray-400"}`}>
+                    {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </p>
                 </div>
               </div>
@@ -231,29 +206,32 @@ export const ChatRoom: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div className="bg-white border-t border-gray-200 p-4">
+      {/* ── Input bar — sticky to bottom of container ── */}
+      <div
+        className="flex-shrink-0 bg-white border-t border-gray-100 px-3 py-3"
+        style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
+      >
         <div className="flex gap-2 items-center">
-          <Input
+          <input
+            ref={inputRef}
             type="text"
             placeholder="Type a message..."
             value={messageInput}
             onChange={(e) => setMessageInput(e.target.value)}
             onKeyPress={handleKeyPress}
             disabled={sending}
-            className="flex-1 rounded-full border-gray-200 bg-gray-50 focus:bg-white"
+            className="flex-1 px-4 py-2.5 rounded-full border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-300 text-sm transition-all disabled:opacity-60"
           />
-          <Button
+          <button
             onClick={handleSendMessage}
             disabled={sending || !messageInput.trim()}
-            className="bg-green-600 hover:bg-green-700 text-white rounded-full w-10 h-10 p-0 flex-shrink-0"
-            size="icon"
+            className="w-10 h-10 flex-shrink-0 bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white rounded-full flex items-center justify-center transition-all active:scale-90"
           >
             {sending
               ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               : <Send size={16} />
             }
-          </Button>
+          </button>
         </div>
       </div>
     </div>

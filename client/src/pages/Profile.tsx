@@ -392,7 +392,7 @@ const Profile = () => {
   const rankInfo = rank!==null ? getRankInfo(rank) : null;
 
   return (
-    <div className="max-w-5xl mx-auto pb-24 relative z-10">
+    <div className="max-w-5xl mx-auto pb-24 relative z-10 overflow-x-hidden">
 
       {/* Hero banner — no overflow:hidden so avatar isn't clipped */}
       <div className={cn('relative transition-opacity duration-700', headerVis?'opacity-100':'opacity-0')}>
